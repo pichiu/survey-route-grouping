@@ -41,9 +41,22 @@ class GroupingEngine:
             group_id = f"{district}{village}-{i:02d}"
 
             # 路線優化
-            if group.addresses and len(group.addresses) > 1:
-                optimized_route = self.route_optimizer.optimize_route(group.addresses)
-                group.route_order = optimized_route
+            if group.addresses:
+                if len(group.addresses) > 1:
+                    optimized_route = self.route_optimizer.optimize_route(group.addresses)
+                    group.route_order = optimized_route
+                    
+                    # 計算路線指標
+                    metrics = self.route_optimizer.calculate_route_metrics(
+                        group.addresses, group.route_order
+                    )
+                    group.estimated_distance = metrics["total_distance"]
+                    group.estimated_time = metrics["estimated_time"]
+                else:
+                    # 單一地址的情況
+                    group.route_order = [group.addresses[0].id]
+                    group.estimated_distance = 0.0
+                    group.estimated_time = 3  # 假設單一地址需要 3 分鐘
 
             group.group_id = group_id
             final_groups.append(group)

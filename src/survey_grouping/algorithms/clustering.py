@@ -2,7 +2,8 @@ import numpy as np
 from sklearn.cluster import DBSCAN, KMeans
 from sklearn.preprocessing import StandardScaler
 
-from ..models.address import Address, RouteGroup
+from ..models.address import Address
+from ..models.group import RouteGroup
 from ..utils.geo_utils import GeoUtils
 
 

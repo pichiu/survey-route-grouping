@@ -76,27 +76,3 @@ class Address(BaseModel):
         r = 6371000
 
         return c * r
-
-
-class RouteGroup(BaseModel):
-    group_id: str
-    addresses: list[Address]
-    estimated_distance: float | None = None
-    estimated_time: int | None = None  # 分鐘
-    route_order: list[int] = []  # address id 順序
-
-    @property
-    def size(self) -> int:
-        return len(self.addresses)
-
-    @property
-    def center_coordinates(self) -> tuple[float, float] | None:
-        valid_coords = [
-            addr.coordinates for addr in self.addresses if addr.has_valid_coordinates
-        ]
-        if not valid_coords:
-            return None
-
-        avg_x = sum(coord[0] for coord in valid_coords) / len(valid_coords)
-        avg_y = sum(coord[1] for coord in valid_coords) / len(valid_coords)
-        return (avg_x, avg_y)

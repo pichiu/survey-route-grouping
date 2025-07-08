@@ -7,7 +7,7 @@ from .database.connection import get_supabase_client, test_supabase_connection
 from .database.queries import AddressQueries
 from .exporters.csv_exporter import CSVExporter
 from .exporters.excel_exporter import ExcelExporter
-from .models.address import RouteGroup
+from .models.group import RouteGroup
 
 app = typer.Typer(help="台南市志工普查路線分組系統")
 console = Console()
@@ -308,7 +308,7 @@ def create_groups(
 
             # 5. 輸出檔案
             if output_file:
-                export_groups(groups, output_format, output_file)
+                export_groups(groups, output_format, output_file, district, village)
                 console.print(f"✅ 結果已輸出至 {output_file}")
 
         except Exception as e:
@@ -343,14 +343,29 @@ def display_groups_summary(groups: list[RouteGroup]):
     console.print(f"\n📊 總計: {len(groups)} 組, {sum(g.size for g in groups)} 個門牌")
 
 
-def export_groups(groups: list[RouteGroup], format_type: str, output_file: str):
+def export_groups(groups: list[RouteGroup], format_type: str, output_file: str, district: str = "", village: str = ""):
     """輸出分組結果"""
+    from .models.group import GroupingResult
+    from datetime import datetime
+    
+    # 建立 GroupingResult 以便使用完整的匯出功能
+    result = GroupingResult(
+        district=district,
+        village=village,
+        target_size=35,  # 預設值
+        total_addresses=sum(len(group.addresses) for group in groups),
+        total_groups=len(groups),
+        groups=groups,
+        created_at=datetime.now(),
+    )
+    result.calculate_statistics()
+    
     if format_type.lower() == "excel":
         exporter = ExcelExporter()
-        exporter.export_groups(groups, output_file)
+        exporter.export_grouping_result(result, output_file)
     elif format_type.lower() == "csv":
         exporter = CSVExporter()
-        exporter.export_groups(groups, output_file)
+        exporter.export_grouping_result(result, output_file)
     else:
         raise ValueError(f"不支援的輸出格式: {format_type}")
 
