@@ -111,7 +111,7 @@ class TestGroupingEngine:
     def test_group_addresses_basic(self, sample_addresses):
         """測試基本地址分組"""
         engine = GroupingEngine(target_size=3)
-        groups = engine.group_addresses(sample_addresses)
+        groups = engine.create_groups(sample_addresses, "測試區", "測試里")
 
         assert len(groups) > 0
         total_addresses = sum(len(group.addresses) for group in groups)
@@ -120,14 +120,14 @@ class TestGroupingEngine:
     def test_group_addresses_empty(self):
         """測試空地址分組"""
         engine = GroupingEngine(target_size=35)
-        groups = engine.group_addresses([])
+        groups = engine.create_groups([], "測試區", "測試里")
 
         assert groups == []
 
     def test_group_addresses_single(self, sample_addresses):
         """測試單一地址分組"""
         engine = GroupingEngine(target_size=35)
-        groups = engine.group_addresses(sample_addresses[:1])
+        groups = engine.create_groups(sample_addresses[:1], "測試區", "測試里")
 
         assert len(groups) == 1
         assert len(groups[0].addresses) == 1
@@ -135,7 +135,7 @@ class TestGroupingEngine:
     def test_group_addresses_large_target(self, sample_addresses):
         """測試大目標分組"""
         engine = GroupingEngine(target_size=100)
-        groups = engine.group_addresses(sample_addresses)
+        groups = engine.create_groups(sample_addresses, "測試區", "測試里")
 
         # 所有地址應該在一個分組中
         assert len(groups) == 1
@@ -144,7 +144,7 @@ class TestGroupingEngine:
     def test_group_addresses_small_target(self, sample_addresses):
         """測試小目標分組"""
         engine = GroupingEngine(target_size=1)
-        groups = engine.group_addresses(sample_addresses)
+        groups = engine.create_groups(sample_addresses, "測試區", "測試里")
 
         # 每個地址應該是一個分組
         assert len(groups) == len(sample_addresses)
@@ -221,7 +221,7 @@ class TestAlgorithmIntegration:
         """測試完整流程"""
         # 1. 分組
         engine = GroupingEngine(target_size=3)
-        groups = engine.group_addresses(sample_addresses)
+        groups = engine.create_groups(sample_addresses, "測試區", "測試里")
 
         assert len(groups) > 0
 

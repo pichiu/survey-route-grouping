@@ -40,6 +40,7 @@ class TestAddress:
             neighborhood=1,
             x_coord=120.2436,
             y_coord=23.0478,
+            full_address="台南市安南區安慶里1鄰測試地址",
         )
 
         coords = address.coordinates
@@ -54,6 +55,7 @@ class TestAddress:
             neighborhood=1,
             x_coord=None,
             y_coord=None,
+            full_address="台南市安南區安慶里1鄰測試地址",
         )
 
         assert address.has_valid_coordinates is False
@@ -68,6 +70,7 @@ class TestAddress:
             neighborhood=1,
             x_coord=120.2436,
             y_coord=23.0478,
+            full_address="台南市安南區安慶里1鄰測試地址1",
         )
 
         addr2 = Address(
@@ -77,6 +80,7 @@ class TestAddress:
             neighborhood=1,
             x_coord=120.2440,
             y_coord=23.0485,
+            full_address="台南市安南區安慶里1鄰測試地址2",
         )
 
         distance = addr1.distance_to(addr2)
@@ -93,6 +97,7 @@ class TestAddress:
             neighborhood=1,
             x_coord=120.2436,
             y_coord=23.0478,
+            full_address="台南市安南區安慶里1鄰測試地址",
         )
 
         point = address.wgs84_point
@@ -249,10 +254,9 @@ class TestAddressType:
 
     def test_address_type_enum(self):
         """測試地址類型枚舉"""
-        assert AddressType.RESIDENTIAL == "residential"
-        assert AddressType.COMMERCIAL == "commercial"
-        assert AddressType.MIXED == "mixed"
-        assert AddressType.OTHER == "other"
+        assert AddressType.STREET == "street"
+        assert AddressType.AREA == "area"
+        assert AddressType.NEIGHBOR == "neighbor"
 
     def test_address_with_type(self):
         """測試帶類型的地址"""
@@ -261,7 +265,8 @@ class TestAddressType:
             district="安南區",
             village="安慶里",
             neighborhood=1,
-            address_type=AddressType.RESIDENTIAL,
+            address_type=AddressType.STREET,
+            full_address="台南市安南區安慶里1鄰測試地址",
         )
 
-        assert address.address_type == AddressType.RESIDENTIAL
+        assert address.address_type == AddressType.STREET
