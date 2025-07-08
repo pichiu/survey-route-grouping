@@ -1,6 +1,5 @@
+
 from pydantic_settings import BaseSettings
-from typing import Optional
-import os
 
 
 class Settings(BaseSettings):
@@ -9,7 +8,7 @@ class Settings(BaseSettings):
     supabase_key: str
 
     # Supabase Service Role Key (可選，用於管理操作)
-    supabase_service_key: Optional[str] = None
+    supabase_service_key: str | None = None
 
     # 分組參數
     default_group_size: int = 35

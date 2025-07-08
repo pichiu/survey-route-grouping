@@ -1,9 +1,7 @@
-from typing import List, Dict
 from collections import defaultdict
-import numpy as np
-from sklearn.cluster import KMeans
-from ..models.address import Address, AddressType, RouteGroup
+
 from ..config.settings import settings
+from ..models.address import Address, AddressType, RouteGroup
 from .address_classifier import AddressClassifier
 from .clustering import GeographicClustering
 from .route_optimizer import RouteOptimizer
@@ -17,8 +15,8 @@ class GroupingEngine:
         self.route_optimizer = RouteOptimizer()
 
     def create_groups(
-        self, addresses: List[Address], district: str, village: str
-    ) -> List[RouteGroup]:
+        self, addresses: list[Address], district: str, village: str,
+    ) -> list[RouteGroup]:
         """主要分組邏輯"""
 
         # 1. 地址分類
@@ -49,8 +47,8 @@ class GroupingEngine:
         return final_groups
 
     def _group_by_type(
-        self, addresses: List[Address]
-    ) -> Dict[AddressType, List[Address]]:
+        self, addresses: list[Address],
+    ) -> dict[AddressType, list[Address]]:
         """按地址類型分組"""
         type_groups = defaultdict(list)
         for address in addresses:
@@ -58,18 +56,17 @@ class GroupingEngine:
         return dict(type_groups)
 
     def _process_address_type(
-        self, addr_type: AddressType, addresses: List[Address]
-    ) -> List[RouteGroup]:
+        self, addr_type: AddressType, addresses: list[Address],
+    ) -> list[RouteGroup]:
         """處理特定類型的地址"""
 
         if addr_type == AddressType.STREET:
             return self._process_street_addresses(addresses)
-        elif addr_type == AddressType.AREA:
+        if addr_type == AddressType.AREA:
             return self._process_area_addresses(addresses)
-        else:
-            return self._process_neighbor_addresses(addresses)
+        return self._process_neighbor_addresses(addresses)
 
-    def _process_street_addresses(self, addresses: List[Address]) -> List[RouteGroup]:
+    def _process_street_addresses(self, addresses: list[Address]) -> list[RouteGroup]:
         """處理街道型地址"""
         # 按街道名稱分組
         street_groups = defaultdict(list)
@@ -84,17 +81,17 @@ class GroupingEngine:
             else:
                 # 大街道需要細分
                 sub_groups = self.geo_clustering.split_by_geography(
-                    addr_list, self.target_size
+                    addr_list, self.target_size,
                 )
                 result_groups.extend(sub_groups)
 
         return result_groups
 
-    def _process_area_addresses(self, addresses: List[Address]) -> List[RouteGroup]:
+    def _process_area_addresses(self, addresses: list[Address]) -> list[RouteGroup]:
         """處理地區型地址 - 主要靠地理聚類"""
         return self.geo_clustering.cluster_by_coordinates(addresses, self.target_size)
 
-    def _process_neighbor_addresses(self, addresses: List[Address]) -> List[RouteGroup]:
+    def _process_neighbor_addresses(self, addresses: list[Address]) -> list[RouteGroup]:
         """處理鄰別型地址"""
         # 按鄰別分組，然後地理聚類
         neighbor_groups = defaultdict(list)
@@ -107,7 +104,7 @@ class GroupingEngine:
                 result_groups.append(RouteGroup(addresses=addr_list, group_id=""))
             else:
                 sub_groups = self.geo_clustering.cluster_by_coordinates(
-                    addr_list, self.target_size
+                    addr_list, self.target_size,
                 )
                 result_groups.extend(sub_groups)
 

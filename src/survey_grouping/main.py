@@ -1,10 +1,11 @@
+
 import typer
 from rich.console import Console
 from rich.table import Table
-from typing import Optional, List
+
+from .algorithms.grouping_engine import GroupingEngine
 from .database.connection import get_supabase_client, test_supabase_connection
 from .database.queries import AddressQueries
-from .algorithms.grouping_engine import GroupingEngine
 from .exporters.csv_exporter import CSVExporter
 from .exporters.excel_exporter import ExcelExporter
 from .models.address import RouteGroup
@@ -20,7 +21,7 @@ def test_connection():
     console.print("🔗 測試 Supabase 連接...")
 
     try:
-        from .database.connection import test_supabase_connection, get_supabase_client
+        from .database.connection import get_supabase_client, test_supabase_connection
         from .database.queries import AddressQueries
 
         # 基本連接測試
@@ -89,7 +90,7 @@ def setup_env():
     anon_key = typer.prompt("請輸入 anon/public Key")
 
     service_key = typer.prompt(
-        "請輸入 service_role Key (可選，按 Enter 跳過)", default="", show_default=False
+        "請輸入 service_role Key (可選，按 Enter 跳過)", default="", show_default=False,
     )
 
     # 寫入 .env 檔案
@@ -141,7 +142,7 @@ LOG_LEVEL=INFO
 @app.command()
 def analyze_density(
     district: str = typer.Argument(..., help="行政區名稱"),
-    village: Optional[str] = typer.Option(None, help="村里名稱（可選）"),
+    village: str | None = typer.Option(None, help="村里名稱（可選）"),
 ):
     """分析指定區域的地址密度"""
 
@@ -163,10 +164,10 @@ def analyze_density(
         if "coordinate_bounds" in stats:
             bounds = stats["coordinate_bounds"]
             console.print(
-                f"經度範圍: {bounds['min_lon']:.6f} ~ {bounds['max_lon']:.6f}"
+                f"經度範圍: {bounds['min_lon']:.6f} ~ {bounds['max_lon']:.6f}",
             )
             console.print(
-                f"緯度範圍: {bounds['min_lat']:.6f} ~ {bounds['max_lat']:.6f}"
+                f"緯度範圍: {bounds['min_lat']:.6f} ~ {bounds['max_lat']:.6f}",
             )
 
     except Exception as e:
@@ -210,7 +211,7 @@ def validate_coordinates(
 @app.command()
 def batch_process(
     district: str = typer.Argument(..., help="行政區名稱"),
-    target_size: Optional[int] = typer.Option(35, help="每組目標人數"),
+    target_size: int | None = typer.Option(35, help="每組目標人數"),
     output_dir: str = typer.Option("./output", help="輸出目錄"),
 ):
     """批次處理整個行政區的所有村里"""
@@ -252,12 +253,12 @@ def batch_process(
 
                 # 輸出檔案
                 output_file = os.path.join(
-                    output_dir, f"{district}_{village}_分組.xlsx"
+                    output_dir, f"{district}_{village}_分組.xlsx",
                 )
                 export_groups(groups, "excel", output_file)
 
                 console.print(
-                    f"  ✅ {village}: {len(groups)} 組, {len(addresses)} 門牌"
+                    f"  ✅ {village}: {len(groups)} 組, {len(addresses)} 門牌",
                 )
 
             except Exception as e:
@@ -273,9 +274,9 @@ def batch_process(
 def create_groups(
     district: str = typer.Argument(..., help="行政區名稱，如：新營區"),
     village: str = typer.Argument(..., help="村里名稱，如：三仙里"),
-    target_size: Optional[int] = typer.Option(35, help="每組目標人數"),
+    target_size: int | None = typer.Option(35, help="每組目標人數"),
     output_format: str = typer.Option("csv", help="輸出格式: csv, excel, json"),
-    output_file: Optional[str] = typer.Option(None, help="輸出檔案名稱"),
+    output_file: str | None = typer.Option(None, help="輸出檔案名稱"),
 ):
     """為指定村里建立志工普查路線分組"""
 
@@ -310,7 +311,7 @@ def create_groups(
         console.print(f"❌ 處理失敗: {e}")
 
 
-def display_groups_summary(groups: List[RouteGroup]):
+def display_groups_summary(groups: list[RouteGroup]):
     """顯示分組摘要"""
     table = Table(title="普查路線分組結果")
     table.add_column("組別", style="cyan")
@@ -335,7 +336,7 @@ def display_groups_summary(groups: List[RouteGroup]):
     console.print(f"\n📊 總計: {len(groups)} 組, {sum(g.size for g in groups)} 個門牌")
 
 
-def export_groups(groups: List[RouteGroup], format_type: str, output_file: str):
+def export_groups(groups: list[RouteGroup], format_type: str, output_file: str):
     """輸出分組結果"""
     if format_type.lower() == "excel":
         exporter = ExcelExporter()

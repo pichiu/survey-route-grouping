@@ -1,10 +1,10 @@
+
 import numpy as np
-from typing import List, Tuple
-from sklearn.cluster import KMeans, DBSCAN
+from sklearn.cluster import DBSCAN, KMeans
 from sklearn.preprocessing import StandardScaler
+
 from ..models.address import Address, RouteGroup
 from ..utils.geo_utils import GeoUtils
-from ..config.settings import settings
 
 
 class GeographicClustering:
@@ -12,8 +12,8 @@ class GeographicClustering:
         self.geo_utils = GeoUtils()
 
     def cluster_by_coordinates(
-        self, addresses: List[Address], target_size: int
-    ) -> List[RouteGroup]:
+        self, addresses: list[Address], target_size: int,
+    ) -> list[RouteGroup]:
         """基於座標的地理聚類"""
 
         # 過濾有效座標
@@ -71,8 +71,8 @@ class GeographicClustering:
             return self._simple_split(valid_addresses, target_size)
 
     def split_by_geography(
-        self, addresses: List[Address], target_size: int
-    ) -> List[RouteGroup]:
+        self, addresses: list[Address], target_size: int,
+    ) -> list[RouteGroup]:
         """按地理位置分割大群組"""
 
         if len(addresses) <= target_size:
@@ -111,7 +111,7 @@ class GeographicClustering:
                 # 如果聚類太大，再次分割
                 if len(cluster_addresses) > target_size * 1.5:
                     sub_groups = self.cluster_by_coordinates(
-                        cluster_addresses, target_size
+                        cluster_addresses, target_size,
                     )
                     groups.extend(sub_groups)
                 else:
@@ -134,8 +134,8 @@ class GeographicClustering:
             return self._simple_split(addresses, target_size)
 
     def _simple_split(
-        self, addresses: List[Address], target_size: int
-    ) -> List[RouteGroup]:
+        self, addresses: list[Address], target_size: int,
+    ) -> list[RouteGroup]:
         """簡單的順序分割"""
         groups = []
 

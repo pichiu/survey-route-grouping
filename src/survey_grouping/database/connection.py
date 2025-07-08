@@ -1,7 +1,7 @@
-import os
-from supabase import create_client, Client
-from typing import Optional
 import logging
+
+from supabase import Client, create_client
+
 from ..config.settings import settings
 
 logger = logging.getLogger(__name__)
@@ -10,8 +10,8 @@ logger = logging.getLogger(__name__)
 class SupabaseConnection:
     """Supabase 連接管理器"""
 
-    _client: Optional[Client] = None
-    _service_client: Optional[Client] = None
+    _client: Client | None = None
+    _service_client: Client | None = None
 
     @classmethod
     def get_client(cls, use_service_key: bool = False) -> Client:
@@ -24,10 +24,9 @@ class SupabaseConnection:
             if cls._service_client is None:
                 cls._service_client = cls._create_service_client()
             return cls._service_client
-        else:
-            if cls._client is None:
-                cls._client = cls._create_client()
-            return cls._client
+        if cls._client is None:
+            cls._client = cls._create_client()
+        return cls._client
 
     @classmethod
     def _create_client(cls) -> Client:
@@ -37,7 +36,7 @@ class SupabaseConnection:
 
         if not url or not key:
             raise ConnectionError(
-                "缺少 Supabase 設定。請檢查 SUPABASE_URL 和 SUPABASE_KEY 環境變數"
+                "缺少 Supabase 設定。請檢查 SUPABASE_URL 和 SUPABASE_KEY 環境變數",
             )
 
         try:
@@ -55,7 +54,7 @@ class SupabaseConnection:
 
         if not url or not service_key:
             raise ConnectionError(
-                "缺少 Service Role Key。請設定 SUPABASE_SERVICE_KEY 環境變數"
+                "缺少 Service Role Key。請設定 SUPABASE_SERVICE_KEY 環境變數",
             )
 
         try:
@@ -105,4 +104,3 @@ def test_supabase_connection() -> bool:
 class ConnectionError(Exception):
     """連接相關錯誤"""
 
-    pass
