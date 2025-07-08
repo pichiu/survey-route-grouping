@@ -25,7 +25,7 @@ class Address(BaseModel):
     full_address: str
 
     # PostGIS 支援
-    geom: str | None = Field(None, description="PostGIS GEOMETRY 欄位的 WKT 表示")
+    geom: dict | str | None = Field(None, description="PostGIS GEOMETRY 欄位")
     created_at: datetime | None = None
     updated_at: datetime | None = None
 

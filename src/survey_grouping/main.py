@@ -281,36 +281,41 @@ def create_groups(
     output_file: str | None = typer.Option(None, help="輸出檔案名稱"),
 ):
     """為指定村里建立志工普查路線分組"""
+    import asyncio
+    
+    async def async_create_groups():
+        console.print(f"🏠 開始處理 {district} {village} 的普查路線分組...")
 
-    console.print(f"🏠 開始處理 {district} {village} 的普查路線分組...")
+        try:
+            # 1. 連接資料庫
+            supabase = get_supabase_client()
+            queries = AddressQueries(supabase)
 
-    try:
-        # 1. 連接資料庫
-        supabase = get_supabase_client()
-        queries = AddressQueries(supabase)
+            # 2. 查詢地址資料
+            addresses = await queries.get_addresses_by_village(district, village)
+            console.print(f"📍 找到 {len(addresses)} 筆地址")
 
-        # 2. 查詢地址資料
-        addresses = queries.get_addresses_by_village(district, village)
-        console.print(f"📍 找到 {len(addresses)} 筆地址")
+            if not addresses:
+                console.print("❌ 找不到符合條件的地址資料")
+                return
 
-        if not addresses:
-            console.print("❌ 找不到符合條件的地址資料")
-            return
+            # 3. 執行分組
+            engine = GroupingEngine(target_size=target_size)
+            groups = engine.create_groups(addresses, district, village)
 
-        # 3. 執行分組
-        engine = GroupingEngine(target_size=target_size)
-        groups = engine.create_groups(addresses, district, village)
+            # 4. 顯示結果
+            display_groups_summary(groups)
 
-        # 4. 顯示結果
-        display_groups_summary(groups)
+            # 5. 輸出檔案
+            if output_file:
+                export_groups(groups, output_format, output_file)
+                console.print(f"✅ 結果已輸出至 {output_file}")
 
-        # 5. 輸出檔案
-        if output_file:
-            export_groups(groups, output_format, output_file)
-            console.print(f"✅ 結果已輸出至 {output_file}")
-
-    except Exception as e:
-        console.print(f"❌ 處理失敗: {e}")
+        except Exception as e:
+            console.print(f"❌ 處理失敗: {e}")
+    
+    # 執行異步函數
+    asyncio.run(async_create_groups())
 
 
 def display_groups_summary(groups: list[RouteGroup]):
@@ -342,10 +347,10 @@ def export_groups(groups: list[RouteGroup], format_type: str, output_file: str):
     """輸出分組結果"""
     if format_type.lower() == "excel":
         exporter = ExcelExporter()
-        exporter.export(groups, output_file)
+        exporter.export_groups(groups, output_file)
     elif format_type.lower() == "csv":
         exporter = CSVExporter()
-        exporter.export(groups, output_file)
+        exporter.export_groups(groups, output_file)
     else:
         raise ValueError(f"不支援的輸出格式: {format_type}")
 
