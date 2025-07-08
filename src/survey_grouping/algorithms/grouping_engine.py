@@ -1,7 +1,8 @@
 from collections import defaultdict
 
 from ..config.settings import settings
-from ..models.address import Address, AddressType, RouteGroup
+from ..models.address import Address, AddressType
+from ..models.group import RouteGroup
 from .address_classifier import AddressClassifier
 from .clustering import GeographicClustering
 from .route_optimizer import RouteOptimizer

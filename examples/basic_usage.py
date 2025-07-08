@@ -14,105 +14,141 @@ from survey_grouping.exporters.csv_exporter import CSVExporter
 
 
 def create_sample_addresses():
-    """建立範例地址資料"""
-    addresses = [
-        Address(
-            id=1,
-            district="安南區",
-            village="安慶里",
-            neighborhood=1,
-            street="安中路",
-            area="一段",
-            number="100號",
-            x_coord=120.2436,
-            y_coord=23.0478,
-            full_address="台南市安南區安慶里1鄰安中路一段100號",
-        ),
-        Address(
-            id=2,
-            district="安南區",
-            village="安慶里",
-            neighborhood=1,
-            street="安中路",
-            area="一段",
-            number="102號",
-            x_coord=120.2438,
-            y_coord=23.0480,
-            full_address="台南市安南區安慶里1鄰安中路一段102號",
-        ),
-        Address(
-            id=3,
-            district="安南區",
-            village="安慶里",
-            neighborhood=2,
-            street="安中路",
-            area="一段",
-            number="200號",
-            x_coord=120.2440,
-            y_coord=23.0485,
-            full_address="台南市安南區安慶里2鄰安中路一段200號",
-        ),
-        Address(
-            id=4,
-            district="安南區",
-            village="安慶里",
-            neighborhood=2,
-            street="安中路",
-            area="一段",
-            number="202號",
-            x_coord=120.2442,
-            y_coord=23.0487,
-            full_address="台南市安南區安慶里2鄰安中路一段202號",
-        ),
-        Address(
-            id=5,
-            district="安南區",
-            village="安慶里",
-            neighborhood=3,
-            street="安中路",
-            area="一段",
-            number="300號",
-            x_coord=120.2445,
-            y_coord=23.0490,
-            full_address="台南市安南區安慶里3鄰安中路一段300號",
-        ),
-        Address(
-            id=6,
-            district="安南區",
-            village="安慶里",
-            neighborhood=3,
-            street="安中路",
-            area="一段",
-            number="302號",
-            x_coord=120.2447,
-            y_coord=23.0492,
-            full_address="台南市安南區安慶里3鄰安中路一段302號",
-        ),
-        Address(
-            id=7,
-            district="安南區",
-            village="安慶里",
-            neighborhood=4,
-            street="安中路",
-            area="一段",
-            number="400號",
-            x_coord=120.2450,
-            y_coord=23.0495,
-            full_address="台南市安南區安慶里4鄰安中路一段400號",
-        ),
-        Address(
-            id=8,
-            district="安南區",
-            village="安慶里",
-            neighborhood=4,
-            street="安中路",
-            area="一段",
-            number="402號",
-            x_coord=120.2452,
-            y_coord=23.0497,
-            full_address="台南市安南區安慶里4鄰安中路一段402號",
-        ),
-    ]
+    """建立範例地址資料（使用真實 sample.csv 資料）"""
+    import csv
+    from pathlib import Path
+    from pyproj import CRS, Transformer
+
+    def normalize_numbers(text: str) -> str:
+        """將全形數字轉換為半形數字"""
+        if not text:
+            return text
+        full_to_half_numbers = str.maketrans("０１２３４５６７８９", "0123456789")
+        return text.translate(full_to_half_numbers)
+
+    def generate_full_address(
+        district: str,
+        village: str,
+        neighborhood: int,
+        street: str = "",
+        area: str = "",
+        lane: str = "",
+        alley: str = "",
+        number: str = "",
+    ) -> str:
+        """生成完整地址"""
+        parts = ["台南市", district, village, f"{neighborhood}鄰"]
+
+        if street:
+            parts.append(street)
+        if area:
+            parts.append(area)
+        if lane:
+            parts.append(f"{lane}巷")
+        if alley:
+            parts.append(f"{alley}弄")
+        if number:
+            parts.append(number)
+
+        return "".join(parts)
+
+    sample_file = Path("sample.csv")
+    if not sample_file.exists():
+        # 如果沒有 sample.csv，返回預設資料
+        return [
+            Address(
+                id=1,
+                district="新營區",
+                village="三仙里",
+                neighborhood=17,
+                street="三民路",
+                number="97之3號",
+                x_coord=120.2436,
+                y_coord=23.0478,
+                full_address="台南市新營區三仙里17鄰三民路97之3號",
+            ),
+        ]
+
+    # 設定座標轉換器
+    twd97 = CRS.from_epsg(3826)  # TWD97 TM2
+    wgs84 = CRS.from_epsg(4326)  # WGS84
+    transformer = Transformer.from_crs(twd97, wgs84, always_xy=True)
+
+    addresses = []
+    try:
+        with open(sample_file, "r", encoding="utf-8") as f:
+            reader = csv.DictReader(f)
+
+            # 選擇前 10 筆作為範例
+            for i, row in enumerate(reader):
+                if i >= 10:
+                    break
+
+                try:
+                    # 轉換 TWD97 座標為 WGS84
+                    twd97_x = float(row["橫座標"])
+                    twd97_y = float(row["縱座標"])
+                    wgs84_lon, wgs84_lat = transformer.transform(twd97_x, twd97_y)
+
+                    # 正規化文字（全形數字轉半形）
+                    district = normalize_numbers(row["區"])
+                    village = normalize_numbers(row["村里"])
+                    neighborhood = int(normalize_numbers(row["鄰"]))
+                    street = normalize_numbers(row["街、路段"])
+                    area = normalize_numbers(row["地區"])
+                    lane = normalize_numbers(row["巷"])
+                    alley = normalize_numbers(row["弄"])
+                    number = normalize_numbers(row["號"])
+
+                    # 生成完整地址
+                    full_address = generate_full_address(
+                        district,
+                        village,
+                        neighborhood,
+                        street,
+                        area,
+                        lane,
+                        alley,
+                        number,
+                    )
+
+                    address = Address(
+                        id=i + 1,
+                        district=district,
+                        village=village,
+                        neighborhood=neighborhood,
+                        street=street or None,
+                        area=area or None,
+                        lane=lane or None,
+                        alley=alley or None,
+                        number=number or None,
+                        x_coord=wgs84_lon,
+                        y_coord=wgs84_lat,
+                        full_address=full_address,
+                    )
+                    addresses.append(address)
+
+                except (ValueError, KeyError) as e:
+                    print(f"跳過無效資料行 {i}: {e}")
+                    continue
+
+    except Exception as e:
+        print(f"載入 sample.csv 失敗: {e}")
+        # 返回預設資料
+        return [
+            Address(
+                id=1,
+                district="新營區",
+                village="三仙里",
+                neighborhood=17,
+                street="三民路",
+                number="97之3號",
+                x_coord=120.2436,
+                y_coord=23.0478,
+                full_address="台南市新營區三仙里17鄰三民路97之3號",
+            ),
+        ]
+
     return addresses
 
 
@@ -132,7 +168,16 @@ def main():
     # 3. 執行地址分組
     print("\n2. 執行地址分組...")
     engine = GroupingEngine(target_size=target_size)
-    groups = engine.group_addresses(addresses)
+    
+    # 取得第一個地址的區域和村里資訊
+    if addresses:
+        district = addresses[0].district
+        village = addresses[0].village
+    else:
+        district = "新營區"
+        village = "三仙里"
+    
+    groups = engine.create_groups(addresses, district, village)
     print(f"   分組完成，共產生 {len(groups)} 個分組")
 
     # 4. 路線優化

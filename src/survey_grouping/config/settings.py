@@ -1,10 +1,17 @@
-from pydantic_settings import BaseSettings
+from pydantic import model_validator
+from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
 class Settings(BaseSettings):
+    model_config = SettingsConfigDict(
+        env_file=".env",
+        env_file_encoding="utf-8",
+        case_sensitive=False,
+    )
+
     # Supabase 設定 (必要)
-    supabase_url: str
-    supabase_key: str
+    supabase_url: str = "https://your-project.supabase.co"
+    supabase_key: str = "your-anon-key"
 
     # Supabase Service Role Key (可選，用於管理操作)
     supabase_service_key: str | None = None
@@ -27,16 +34,8 @@ class Settings(BaseSettings):
     debug: bool = False
     log_level: str = "INFO"
 
-    class Config:
-        env_file = ".env"
-        env_file_encoding = "utf-8"
-        case_sensitive = False
-
-    def __init__(self, **kwargs):
-        super().__init__(**kwargs)
-        self._validate_supabase_config()
-
-    def _validate_supabase_config(self):
+    @model_validator(mode="after")
+    def validate_supabase_config(self):
         """驗證 Supabase 設定"""
         if not self.supabase_url:
             raise ValueError("SUPABASE_URL 是必要的環境變數")
@@ -46,6 +45,8 @@ class Settings(BaseSettings):
 
         if not self.supabase_url.startswith("https://"):
             raise ValueError("SUPABASE_URL 必須是有效的 HTTPS URL")
+
+        return self
 
 
 # 全域設定實例
