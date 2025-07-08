@@ -149,11 +149,17 @@ survey_route_grouping/
 │       │   ├── __init__.py
 │       │   ├── geo_utils.py        # 地理計算工具（PostGIS）
 │       │   └── validators.py       # 資料驗證
+│       ├── visualizers/
+│       │   ├── __init__.py
+│       │   ├── map_visualizer.py   # 主要地圖視覺化類別
+│       │   ├── folium_renderer.py  # Folium 渲染器
+│       │   └── color_schemes.py    # 顏色配置
 │       └── exporters/
 │           ├── __init__.py
 │           ├── csv_exporter.py     # CSV 輸出
 │           ├── json_exporter.py    # JSON 輸出
-│           └── excel_exporter.py   # Excel 輸出
+│           ├── excel_exporter.py   # Excel 輸出
+│           └── map_exporter.py     # 地圖匯出功能
 ├── tests/
 │   ├── __init__.py
 │   ├── test_clustering.py
@@ -282,6 +288,59 @@ center = await queries.get_village_center("新營區", "三仙里")
 - **空間索引**：GIST 索引加速空間查詢
 - **批次處理**：支援大量資料的高效處理
 - **記憶體管理**：串流處理避免記憶體溢出
+
+## 🗺️ 資料視覺化
+
+### 互動式地圖視覺化
+基於 Folium + OpenStreetMap 的互動式地圖，提供直觀的路線分組視覺化。
+
+#### 功能特色
+- **總覽地圖**：所有分組在同一張地圖上，不同顏色區分
+- **個別分組地圖**：每組獨立地圖，顯示詳細路線和訪問順序
+- **互動功能**：點擊標記查看地址詳情、距離和時間資訊
+- **路線視覺化**：顯示最佳訪問路徑和順序編號
+- **離線使用**：生成 HTML 檔案，可離線開啟使用
+
+#### 視覺化命令
+```bash
+# 生成完整視覺化地圖（總覽 + 個別分組）
+uv run survey-grouping visualize 七股區 西寮里
+
+# 指定輸出目錄
+uv run survey-grouping visualize 七股區 西寮里 --output-dir maps/
+
+# 只生成總覽圖
+uv run survey-grouping visualize 七股區 西寮里 --overview-only
+
+# 只生成個別分組圖
+uv run survey-grouping visualize 七股區 西寮里 --groups-only
+
+# 自訂目標分組大小
+uv run survey-grouping visualize 七股區 西寮里 --target-size 30
+```
+
+#### 輸出檔案結構
+```
+maps/
+├── 七股區西寮里_總覽.html          # 所有分組總覽
+├── 七股區西寮里_第1組.html         # 第1組詳細路線
+├── 七股區西寮里_第2組.html         # 第2組詳細路線
+└── 七股區西寮里_第3組.html         # 第3組詳細路線
+```
+
+#### 地圖功能說明
+- **顏色編碼**：每個分組使用不同顏色的標記
+- **訪問順序**：標記上顯示訪問順序編號（1, 2, 3...）
+- **路線連線**：顯示最佳化的訪問路徑
+- **資訊彈窗**：點擊標記顯示地址、座標、分組資訊
+- **圖層控制**：可切換顯示/隱藏不同分組
+- **統計面板**：顯示分組統計資訊（距離、時間、地址數量）
+
+#### 使用場景
+- **志工培訓**：視覺化展示分組區域和路線
+- **現場導航**：志工可用手機開啟 HTML 檔案進行導航
+- **進度追蹤**：管理者可視化監控各組進度
+- **路線優化**：直觀檢視和調整分組策略
 
 ## 📊 輸出格式
 
