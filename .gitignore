@@ -222,5 +222,6 @@ logs/
 
 # 地圖視覺化輸出
 maps/
+test_maps/
 exports/
 results/
