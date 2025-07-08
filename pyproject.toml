@@ -43,6 +43,8 @@ dependencies = [
     "shapely>=2.0.0",
     "python-dotenv>=1.0.0",
     "pyproj>=3.4.0",
+    "folium>=0.15.0",
+    "branca>=0.6.0",
 ]
 requires-python = ">=3.11"
 

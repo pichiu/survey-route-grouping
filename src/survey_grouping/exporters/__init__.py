@@ -6,5 +6,6 @@
 from .csv_exporter import CSVExporter
 from .json_exporter import JSONExporter
 from .excel_exporter import ExcelExporter
+from .map_exporter import MapExporter
 
-__all__ = ["CSVExporter", "JSONExporter", "ExcelExporter"]
+__all__ = ["CSVExporter", "JSONExporter", "ExcelExporter", "MapExporter"]

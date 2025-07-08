@@ -7,6 +7,7 @@ from .database.connection import get_supabase_client, test_supabase_connection
 from .database.queries import AddressQueries
 from .exporters.csv_exporter import CSVExporter
 from .exporters.excel_exporter import ExcelExporter
+from .exporters.map_exporter import MapExporter
 from .models.group import RouteGroup
 
 app = typer.Typer(help="台南市志工普查路線分組系統")
@@ -270,6 +271,69 @@ def batch_process(
 
     except Exception as e:
         console.print(f"❌ 批次處理失敗: {e}")
+
+
+@app.command()
+def visualize(
+    district: str = typer.Argument(..., help="行政區名稱，如：七股區"),
+    village: str = typer.Argument(..., help="村里名稱，如：西寮里"),
+    target_size: int | None = typer.Option(35, help="每組目標人數"),
+    output_dir: str = typer.Option("./maps", help="地圖輸出目錄"),
+    overview_only: bool = typer.Option(False, help="只生成總覽地圖"),
+    groups_only: bool = typer.Option(False, help="只生成分組地圖"),
+):
+    """生成互動式地圖視覺化"""
+    import asyncio
+    
+    async def async_visualize():
+        console.print(f"🗺️ 開始生成 {district} {village} 的地圖視覺化...")
+
+        try:
+            # 1. 連接資料庫並查詢地址
+            supabase = get_supabase_client()
+            queries = AddressQueries(supabase)
+            addresses = await queries.get_addresses_by_village(district, village)
+            
+            console.print(f"📍 找到 {len(addresses)} 筆地址")
+
+            if not addresses:
+                console.print("❌ 找不到符合條件的地址資料")
+                return
+
+            # 2. 執行分組
+            engine = GroupingEngine(target_size=target_size)
+            groups = engine.create_groups(addresses, district, village)
+
+            # 3. 生成地圖
+            map_exporter = MapExporter()
+            result = map_exporter.export_all_maps(
+                groups, district, village, output_dir, overview_only, groups_only
+            )
+
+            # 4. 顯示結果
+            if result["success"]:
+                console.print("✅ 地圖生成成功！")
+                
+                if result["overview_map"]:
+                    console.print(f"📊 總覽地圖: {result['overview_map']}")
+                
+                if result["group_maps"]:
+                    console.print(f"🗂️ 分組地圖: {len(result['group_maps'])} 個檔案")
+                    for map_file in result["group_maps"]:
+                        console.print(f"   - {map_file}")
+                
+                console.print(f"\n🎯 所有地圖已儲存至: {output_dir}")
+                
+            else:
+                console.print("❌ 地圖生成失敗")
+                for error in result["errors"]:
+                    console.print(f"   - {error}")
+
+        except Exception as e:
+            console.print(f"❌ 視覺化失敗: {e}")
+    
+    # 執行異步函數
+    asyncio.run(async_visualize())
 
 
 @app.command()
