@@ -24,11 +24,21 @@ class GeographicClustering:
         if not valid_addresses:
             return [RouteGroup(addresses=addresses, group_id="")]
 
-        # 計算分組數量
-        n_clusters = max(1, len(valid_addresses) // target_size)
-
+        # 計算分組數量 - 使用平均分配避免最後一組過少
+        total_addresses = len(valid_addresses)
+        n_clusters = max(1, round(total_addresses / target_size))
+        
+        # 如果只需要一組
         if n_clusters == 1:
             return [RouteGroup(addresses=valid_addresses, group_id="")]
+        
+        # 計算平均每組大小，避免最後一組過少
+        avg_group_size = total_addresses / n_clusters
+        min_group_size = int(avg_group_size * 0.8)  # 最小組大小為平均值的80%
+        
+        # 如果最後一組會太小，減少分組數量
+        if total_addresses % n_clusters < min_group_size and n_clusters > 1:
+            n_clusters -= 1
 
         # 準備座標資料 (經度, 緯度)
         coordinates = np.array([addr.coordinates for addr in valid_addresses])
@@ -143,11 +153,28 @@ class GeographicClustering:
         addresses: list[Address],
         target_size: int,
     ) -> list[RouteGroup]:
-        """簡單的順序分割"""
+        """簡單的平均分割"""
+        if not addresses:
+            return []
+            
+        total_addresses = len(addresses)
+        n_groups = max(1, round(total_addresses / target_size))
+        
+        # 計算每組的平均大小
+        base_size = total_addresses // n_groups
+        remainder = total_addresses % n_groups
+        
         groups = []
-
-        for i in range(0, len(addresses), target_size):
-            group_addresses = addresses[i : i + target_size]
+        start_idx = 0
+        
+        for i in range(n_groups):
+            # 前 remainder 組多分配一個地址
+            group_size = base_size + (1 if i < remainder else 0)
+            end_idx = start_idx + group_size
+            
+            group_addresses = addresses[start_idx:end_idx]
             groups.append(RouteGroup(addresses=group_addresses, group_id=""))
-
+            
+            start_idx = end_idx
+        
         return groups
