@@ -63,7 +63,9 @@ class VillageStats(BaseModel):
 
     @classmethod
     def from_address_stats(
-        cls, stats: AddressStats, target_group_size: int = 35,
+        cls,
+        stats: AddressStats,
+        target_group_size: int = 35,
     ) -> "VillageStats":
         """從 AddressStats 建立 VillageStats"""
         estimated_groups = max(1, stats.address_count // target_group_size)

@@ -1,4 +1,3 @@
-
 import numpy as np
 from sklearn.cluster import DBSCAN, KMeans
 from sklearn.preprocessing import StandardScaler
@@ -12,7 +11,9 @@ class GeographicClustering:
         self.geo_utils = GeoUtils()
 
     def cluster_by_coordinates(
-        self, addresses: list[Address], target_size: int,
+        self,
+        addresses: list[Address],
+        target_size: int,
     ) -> list[RouteGroup]:
         """基於座標的地理聚類"""
 
@@ -71,7 +72,9 @@ class GeographicClustering:
             return self._simple_split(valid_addresses, target_size)
 
     def split_by_geography(
-        self, addresses: list[Address], target_size: int,
+        self,
+        addresses: list[Address],
+        target_size: int,
     ) -> list[RouteGroup]:
         """按地理位置分割大群組"""
 
@@ -111,7 +114,8 @@ class GeographicClustering:
                 # 如果聚類太大，再次分割
                 if len(cluster_addresses) > target_size * 1.5:
                     sub_groups = self.cluster_by_coordinates(
-                        cluster_addresses, target_size,
+                        cluster_addresses,
+                        target_size,
                     )
                     groups.extend(sub_groups)
                 else:
@@ -134,7 +138,9 @@ class GeographicClustering:
             return self._simple_split(addresses, target_size)
 
     def _simple_split(
-        self, addresses: list[Address], target_size: int,
+        self,
+        addresses: list[Address],
+        target_size: int,
     ) -> list[RouteGroup]:
         """簡單的順序分割"""
         groups = []

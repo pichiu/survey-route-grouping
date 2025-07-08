@@ -1,4 +1,3 @@
-
 from supabase import Client
 
 from ..models.address import Address
@@ -10,7 +9,9 @@ class AddressQueries:
         self.supabase = supabase
 
     async def get_addresses_by_village(
-        self, district: str, village: str,
+        self,
+        district: str,
+        village: str,
     ) -> list[Address]:
         """取得指定村里的所有地址"""
         try:
@@ -65,13 +66,16 @@ class AddressQueries:
             raise DatabaseError(f"空間查詢失敗: {e}")
 
     async def get_village_center(
-        self, district: str, village: str,
+        self,
+        district: str,
+        village: str,
     ) -> tuple[float, float] | None:
         """取得村里的地理中心點"""
         try:
             # 使用 PostGIS ST_Centroid 計算中心點
             response = self.supabase.rpc(
-                "get_village_center", {"p_district": district, "p_village": village},
+                "get_village_center",
+                {"p_district": district, "p_village": village},
             ).execute()
 
             if response.data and len(response.data) > 0:
@@ -95,7 +99,10 @@ class AddressQueries:
             return (avg_x, avg_y)
 
     async def get_addresses_by_neighborhood(
-        self, district: str, village: str, neighborhood: int,
+        self,
+        district: str,
+        village: str,
+        neighborhood: int,
     ) -> list[Address]:
         """取得指定鄰的所有地址"""
         try:
@@ -117,7 +124,9 @@ class AddressQueries:
             raise DatabaseError(f"查詢鄰別地址失敗: {e}")
 
     async def get_address_stats(
-        self, district: str, village: str | None = None,
+        self,
+        district: str,
+        village: str | None = None,
     ) -> list[AddressStats]:
         """取得地址統計資訊"""
         try:
@@ -138,7 +147,9 @@ class AddressQueries:
             raise DatabaseError(f"查詢統計資料失敗: {e}")
 
     async def get_village_stats(
-        self, district: str, village: str,
+        self,
+        district: str,
+        village: str,
     ) -> VillageStats | None:
         """取得村里統計摘要"""
         try:
@@ -199,7 +210,8 @@ class AddressQueries:
             raise DatabaseError(f"查詢區級統計失敗: {e}")
 
     async def calculate_distances_matrix(
-        self, addresses: list[Address],
+        self,
+        addresses: list[Address],
     ) -> list[list[float]]:
         """計算地址間的距離矩陣（使用 PostGIS）"""
         try:
@@ -211,7 +223,8 @@ class AddressQueries:
 
             # 使用 PostGIS 計算距離矩陣
             response = self.supabase.rpc(
-                "calculate_distance_matrix", {"address_ids": address_ids},
+                "calculate_distance_matrix",
+                {"address_ids": address_ids},
             ).execute()
 
             if response.data:

@@ -103,4 +103,3 @@ def test_supabase_connection() -> bool:
 
 class ConnectionError(Exception):
     """連接相關錯誤"""
-

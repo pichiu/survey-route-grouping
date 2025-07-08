@@ -1,4 +1,3 @@
-
 import typer
 from rich.console import Console
 from rich.table import Table
@@ -90,7 +89,9 @@ def setup_env():
     anon_key = typer.prompt("請輸入 anon/public Key")
 
     service_key = typer.prompt(
-        "請輸入 service_role Key (可選，按 Enter 跳過)", default="", show_default=False,
+        "請輸入 service_role Key (可選，按 Enter 跳過)",
+        default="",
+        show_default=False,
     )
 
     # 寫入 .env 檔案
@@ -253,7 +254,8 @@ def batch_process(
 
                 # 輸出檔案
                 output_file = os.path.join(
-                    output_dir, f"{district}_{village}_分組.xlsx",
+                    output_dir,
+                    f"{district}_{village}_分組.xlsx",
                 )
                 export_groups(groups, "excel", output_file)
 

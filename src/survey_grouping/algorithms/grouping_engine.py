@@ -15,7 +15,10 @@ class GroupingEngine:
         self.route_optimizer = RouteOptimizer()
 
     def create_groups(
-        self, addresses: list[Address], district: str, village: str,
+        self,
+        addresses: list[Address],
+        district: str,
+        village: str,
     ) -> list[RouteGroup]:
         """主要分組邏輯"""
 
@@ -47,7 +50,8 @@ class GroupingEngine:
         return final_groups
 
     def _group_by_type(
-        self, addresses: list[Address],
+        self,
+        addresses: list[Address],
     ) -> dict[AddressType, list[Address]]:
         """按地址類型分組"""
         type_groups = defaultdict(list)
@@ -56,7 +60,9 @@ class GroupingEngine:
         return dict(type_groups)
 
     def _process_address_type(
-        self, addr_type: AddressType, addresses: list[Address],
+        self,
+        addr_type: AddressType,
+        addresses: list[Address],
     ) -> list[RouteGroup]:
         """處理特定類型的地址"""
 
@@ -81,7 +87,8 @@ class GroupingEngine:
             else:
                 # 大街道需要細分
                 sub_groups = self.geo_clustering.split_by_geography(
-                    addr_list, self.target_size,
+                    addr_list,
+                    self.target_size,
                 )
                 result_groups.extend(sub_groups)
 
@@ -104,7 +111,8 @@ class GroupingEngine:
                 result_groups.append(RouteGroup(addresses=addr_list, group_id=""))
             else:
                 sub_groups = self.geo_clustering.cluster_by_coordinates(
-                    addr_list, self.target_size,
+                    addr_list,
+                    self.target_size,
                 )
                 result_groups.extend(sub_groups)
 

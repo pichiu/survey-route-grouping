@@ -119,7 +119,8 @@ class RouteGroup(BaseModel):
         while unvisited:
             # 找到最近的未訪問地址
             nearest = min(
-                unvisited, key=lambda addr: current.distance_to(addr) or float("inf"),
+                unvisited,
+                key=lambda addr: current.distance_to(addr) or float("inf"),
             )
             route.append(nearest.id)
             unvisited.remove(nearest)

@@ -6,7 +6,8 @@ from ..models.address import Address
 class GeoUtils:
     @staticmethod
     def calculate_distance(
-        coord1: tuple[float, float], coord2: tuple[float, float],
+        coord1: tuple[float, float],
+        coord2: tuple[float, float],
     ) -> float:
         """計算兩點間的地理距離 (公尺)"""
         return geodesic(coord1, coord2).meters
@@ -46,7 +47,8 @@ class GeoUtils:
 
     @staticmethod
     def is_within_threshold(
-        addresses: list[Address], max_distance: float = 500.0,
+        addresses: list[Address],
+        max_distance: float = 500.0,
     ) -> bool:
         """檢查分組是否在距離閾值內"""
         if len(addresses) < 2:
@@ -70,7 +72,10 @@ class PostGISQueries:
 
     @staticmethod
     def nearest_neighbors_query(
-        lon: float, lat: float, limit: int = 50, max_distance: float = 1000.0,
+        lon: float,
+        lat: float,
+        limit: int = 50,
+        max_distance: float = 1000.0,
     ) -> str:
         """生成最近鄰查詢 SQL"""
         return f"""
@@ -88,7 +93,9 @@ class PostGISQueries:
 
     @staticmethod
     def spatial_clustering_query(
-        district: str, village: str, cluster_distance: float = 200.0,
+        district: str,
+        village: str,
+        cluster_distance: float = 200.0,
     ) -> str:
         """生成空間聚類查詢 SQL"""
         return f"""
