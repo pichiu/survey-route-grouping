@@ -30,7 +30,7 @@ class CSVExporter:
             output_file = Path(output_path)
             output_file.parent.mkdir(parents=True, exist_ok=True)
 
-            with open(output_file, "w", newline="", encoding="utf-8") as csvfile:
+            with open(output_file, "w", newline="", encoding="utf-8-sig") as csvfile:
                 fieldnames = [
                     "分組編號",
                     "地址ID",
@@ -103,7 +103,7 @@ class CSVExporter:
             output_file = Path(output_path)
             output_file.parent.mkdir(parents=True, exist_ok=True)
 
-            with open(output_file, "w", newline="", encoding="utf-8") as csvfile:
+            with open(output_file, "w", newline="", encoding="utf-8-sig") as csvfile:
                 fieldnames = [
                     "分組編號",
                     "分組大小",
@@ -170,7 +170,7 @@ class CSVExporter:
             output_file = Path(output_path)
             output_file.parent.mkdir(parents=True, exist_ok=True)
 
-            with open(output_file, "w", newline="", encoding="utf-8") as csvfile:
+            with open(output_file, "w", newline="", encoding="utf-8-sig") as csvfile:
                 fieldnames = [
                     "分組編號",
                     "分組大小",
@@ -223,7 +223,7 @@ class CSVExporter:
             output_file = Path(output_path)
             output_file.parent.mkdir(parents=True, exist_ok=True)
 
-            with open(output_file, "w", newline="", encoding="utf-8") as csvfile:
+            with open(output_file, "w", newline="", encoding="utf-8-sig") as csvfile:
                 fieldnames = [
                     "地址ID",
                     "完整地址",
@@ -279,7 +279,7 @@ class CSVExporter:
             file_path = output_path / filename
 
             try:
-                with open(file_path, "w", newline="", encoding="utf-8") as csvfile:
+                with open(file_path, "w", newline="", encoding="utf-8-sig") as csvfile:
                     fieldnames = [
                         "訪問順序",
                         "地址ID",

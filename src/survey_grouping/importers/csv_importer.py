@@ -45,36 +45,52 @@ class CSVImporter:
         
         rows = []
         
-        with open(file_path, 'r', encoding='utf-8-sig') as f:
-            reader = csv.DictReader(f)
-            
-            for row_num, row in enumerate(reader, start=2):  # 從第2行開始計算（第1行是標題）
-                try:
-                    # 處理可能的空值
-                    processed_row = {}
-                    for key, value in row.items():
-                        if value == '' or value is None:
-                            processed_row[key] = None
-                        elif key in ['分組大小', '目標大小', '預估時間(分鐘)', '地址ID', '鄰別', '訪問順序']:
-                            try:
-                                processed_row[key] = int(value) if value else None
-                            except ValueError:
-                                processed_row[key] = None
-                        elif key in ['預估距離(公尺)', '經度', '緯度']:
-                            try:
-                                processed_row[key] = float(value) if value else None
-                            except ValueError:
-                                if key in ['經度', '緯度']:
-                                    raise ValueError(f"第 {row_num} 行的 {key} 必須是有效數值: {value}")
-                                processed_row[key] = None
-                        else:
-                            processed_row[key] = value
+        # 嘗試使用不同編碼讀取檔案
+        encodings = ['utf-8-sig', 'utf-8']
+        last_error = None
+        
+        for encoding in encodings:
+            try:
+                with open(file_path, 'r', encoding=encoding) as f:
+                    reader = csv.DictReader(f)
                     
-                    csv_row = CSVGroupRow(**processed_row)
-                    rows.append(csv_row)
+                    for row_num, row in enumerate(reader, start=2):  # 從第2行開始計算（第1行是標題）
+                        try:
+                            # 處理可能的空值
+                            processed_row = {}
+                            for key, value in row.items():
+                                if value == '' or value is None:
+                                    processed_row[key] = None
+                                elif key in ['分組大小', '目標大小', '預估時間(分鐘)', '地址ID', '鄰別', '訪問順序']:
+                                    try:
+                                        processed_row[key] = int(value) if value else None
+                                    except ValueError:
+                                        processed_row[key] = None
+                                elif key in ['預估距離(公尺)', '經度', '緯度']:
+                                    try:
+                                        processed_row[key] = float(value) if value else None
+                                    except ValueError:
+                                        if key in ['經度', '緯度']:
+                                            raise ValueError(f"第 {row_num} 行的 {key} 必須是有效數值: {value}")
+                                        processed_row[key] = None
+                                else:
+                                    processed_row[key] = value
+                            
+                            csv_row = CSVGroupRow(**processed_row)
+                            rows.append(csv_row)
+                            
+                        except Exception as e:
+                            raise ValueError(f"解析 CSV 第 {row_num} 行時發生錯誤: {e}")
                     
-                except Exception as e:
-                    raise ValueError(f"解析 CSV 第 {row_num} 行時發生錯誤: {e}")
+                    # 成功讀取，跳出迴圈
+                    break
+                    
+            except (UnicodeDecodeError, UnicodeError) as e:
+                last_error = e
+                continue
+        else:
+            # 所有編碼都失敗
+            raise ValueError(f"無法使用支援的編碼 ({', '.join(encodings)}) 讀取檔案，最後錯誤: {last_error}")
         
         return rows
     
@@ -190,40 +206,52 @@ class CSVImporter:
         if not file_path.exists():
             return False, [f"檔案不存在: {file_path}"]
         
-        try:
-            with open(file_path, 'r', encoding='utf-8-sig') as f:
-                reader = csv.DictReader(f)
-                headers = reader.fieldnames
-                
-                # 檢查必要欄位
-                required_fields = ['分組編號', '完整地址', '區域', '村里', '鄰別', '經度', '緯度']
-                missing_fields = [field for field in required_fields if field not in headers]
-                
-                if missing_fields:
-                    errors.append(f"缺少必要欄位: {', '.join(missing_fields)}")
-                
-                # 檢查前幾筆資料的格式
-                sample_count = 0
-                for row_num, row in enumerate(reader, start=2):
-                    if sample_count >= 5:  # 只檢查前5筆
-                        break
+        # 嘗試使用不同編碼讀取檔案
+        encodings = ['utf-8-sig', 'utf-8']
+        last_error = None
+        
+        for encoding in encodings:
+            try:
+                with open(file_path, 'r', encoding=encoding) as f:
+                    reader = csv.DictReader(f)
+                    headers = reader.fieldnames
                     
-                    # 檢查經緯度是否為有效數值
-                    try:
-                        float(row['經度'])
-                        float(row['緯度'])
-                    except (ValueError, KeyError):
-                        errors.append(f"第 {row_num} 行的經緯度格式錯誤")
+                    # 檢查必要欄位
+                    required_fields = ['分組編號', '完整地址', '區域', '村里', '鄰別', '經度', '緯度']
+                    missing_fields = [field for field in required_fields if field not in headers]
                     
-                    # 檢查鄰別是否為整數
-                    try:
-                        int(row['鄰別'])
-                    except (ValueError, KeyError):
-                        errors.append(f"第 {row_num} 行的鄰別必須是整數")
+                    if missing_fields:
+                        errors.append(f"缺少必要欄位: {', '.join(missing_fields)}")
                     
-                    sample_count += 1
+                    # 檢查前幾筆資料的格式
+                    sample_count = 0
+                    for row_num, row in enumerate(reader, start=2):
+                        if sample_count >= 5:  # 只檢查前5筆
+                            break
+                        
+                        # 檢查經緯度是否為有效數值
+                        try:
+                            float(row['經度'])
+                            float(row['緯度'])
+                        except (ValueError, KeyError):
+                            errors.append(f"第 {row_num} 行的經緯度格式錯誤")
+                        
+                        # 檢查鄰別是否為整數
+                        try:
+                            int(row['鄰別'])
+                        except (ValueError, KeyError):
+                            errors.append(f"第 {row_num} 行的鄰別必須是整數")
+                        
+                        sample_count += 1
                 
-        except Exception as e:
-            errors.append(f"讀取檔案時發生錯誤: {e}")
+                # 成功讀取，跳出迴圈
+                break
+                
+            except (UnicodeDecodeError, UnicodeError) as e:
+                last_error = e
+                continue
+        else:
+            # 所有編碼都失敗
+            errors.append(f"無法使用支援的編碼 ({', '.join(encodings)}) 讀取檔案，最後錯誤: {last_error}")
         
         return len(errors) == 0, errors
