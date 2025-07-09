@@ -8,6 +8,7 @@ from .database.queries import AddressQueries
 from .exporters.csv_exporter import CSVExporter
 from .exporters.excel_exporter import ExcelExporter
 from .exporters.map_exporter import MapExporter
+from .importers.csv_importer import CSVImporter
 from .models.group import RouteGroup
 
 app = typer.Typer(help="台南市志工普查路線分組系統")
@@ -334,6 +335,82 @@ def visualize(
     
     # 執行異步函數
     asyncio.run(async_visualize())
+
+
+@app.command()
+def visualize_from_csv(
+    csv_file: str = typer.Argument(..., help="分組結果 CSV 檔案路徑"),
+    output_dir: str = typer.Option("./maps", help="地圖輸出目錄"),
+    overview_only: bool = typer.Option(False, help="只生成總覽地圖"),
+    groups_only: bool = typer.Option(False, help="只生成分組地圖"),
+):
+    """從 CSV 檔案讀取分組結果並生成地圖視覺化"""
+    from pathlib import Path
+    
+    try:
+        csv_path = Path(csv_file)
+        console.print(f"📁 讀取 CSV 檔案: {csv_path}")
+        
+        # 1. 驗證 CSV 檔案格式
+        importer = CSVImporter()
+        is_valid, errors = importer.validate_csv_format(csv_path)
+        
+        if not is_valid:
+            console.print("❌ CSV 檔案格式驗證失敗:")
+            for error in errors:
+                console.print(f"   - {error}")
+            return
+        
+        console.print("✅ CSV 檔案格式驗證通過")
+        
+        # 2. 導入分組結果
+        console.print("📊 解析分組資料...")
+        grouping_result = importer.import_from_csv(csv_path)
+        
+        console.print(f"📍 成功讀取 {grouping_result.total_addresses} 筆地址")
+        console.print(f"🗂️ 共 {grouping_result.total_groups} 個分組")
+        
+        # 3. 顯示分組摘要
+        display_groups_summary(grouping_result.groups)
+        
+        # 4. 生成地圖
+        console.print(f"🗺️ 開始生成 {grouping_result.district} {grouping_result.village} 的地圖視覺化...")
+        
+        map_exporter = MapExporter()
+        result = map_exporter.export_all_maps(
+            grouping_result.groups, 
+            grouping_result.district, 
+            grouping_result.village, 
+            output_dir, 
+            overview_only, 
+            groups_only
+        )
+        
+        # 5. 顯示結果
+        if result["success"]:
+            console.print("✅ 地圖生成成功！")
+            
+            if result["overview_map"]:
+                console.print(f"📊 總覽地圖: {result['overview_map']}")
+            
+            if result["group_maps"]:
+                console.print(f"🗂️ 分組地圖: {len(result['group_maps'])} 個檔案")
+                for map_file in result["group_maps"]:
+                    console.print(f"   - {map_file}")
+            
+            console.print(f"\n🎯 所有地圖已儲存至: {output_dir}")
+            
+        else:
+            console.print("❌ 地圖生成失敗")
+            for error in result["errors"]:
+                console.print(f"   - {error}")
+    
+    except Exception as e:
+        console.print(f"❌ 處理失敗: {e}")
+        console.print("\n💡 請檢查:")
+        console.print("1. CSV 檔案是否存在且格式正確")
+        console.print("2. CSV 檔案是否包含必要的欄位（分組編號、完整地址、區域、村里、鄰別、經度、緯度）")
+        console.print("3. 經緯度座標是否為有效數值")
 
 
 @app.command()

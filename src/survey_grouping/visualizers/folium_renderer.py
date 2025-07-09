@@ -207,15 +207,18 @@ class FoliumRenderer:
         group_index: int
     ):
         """添加帶訪問順序的標記"""
+        # 如果沒有路線順序，使用一般標記
+        if not group.route_order:
+            self._add_group_markers_to_map(map_obj, group, group_index)
+            return
+            
         marker_color = self.color_scheme.get_marker_color(group_index)
         
         # 建立地址字典
         addr_dict = {addr.id: addr for addr in group.addresses}
         
         # 按路線順序添加標記
-        route_order = group.route_order or [addr.id for addr in group.addresses]
-        
-        for order, addr_id in enumerate(route_order, 1):
+        for order, addr_id in enumerate(group.route_order, 1):
             addr = addr_dict.get(addr_id)
             if not addr or not addr.has_valid_coordinates:
                 continue
@@ -256,6 +259,36 @@ class FoliumRenderer:
                     icon_anchor=(15, 15),
                 ),
             ).add_to(map_obj)
+    
+    def _add_group_markers_to_map(
+        self, 
+        map_obj: folium.Map, 
+        group: RouteGroup, 
+        group_index: int
+    ):
+        """直接在地圖上添加一般分組標記（無順序）"""
+        marker_color = self.color_scheme.get_marker_color(group_index)
+        
+        for addr in group.addresses:
+            if not addr.has_valid_coordinates:
+                continue
+
+            # 建立彈出視窗內容
+            popup_html = f"""
+            <div style="width: 200px;">
+                <h4>{group.group_id}</h4>
+                <p><strong>地址:</strong> {addr.full_address}</p>
+                <p><strong>鄰別:</strong> {addr.neighborhood}鄰</p>
+                <p><strong>座標:</strong> {addr.y_coord:.6f}, {addr.x_coord:.6f}</p>
+            </div>
+            """
+
+            folium.Marker(
+                location=[addr.y_coord, addr.x_coord],
+                popup=folium.Popup(popup_html, max_width=250),
+                tooltip=addr.full_address,
+                icon=folium.Icon(color=marker_color, icon="home"),
+            ).add_to(map_obj)
 
     def _add_route_line(
         self, 
@@ -264,7 +297,8 @@ class FoliumRenderer:
         group_index: int
     ):
         """添加路線連線"""
-        if len(group.addresses) < 2:
+        # 如果沒有路線順序，不繪製路線
+        if not group.route_order or len(group.addresses) < 2:
             return
 
         # 建立地址字典
@@ -272,9 +306,8 @@ class FoliumRenderer:
         
         # 按路線順序建立座標列表
         route_coords = []
-        route_order = group.route_order or [addr.id for addr in group.addresses]
         
-        for addr_id in route_order:
+        for addr_id in group.route_order:
             addr = addr_dict.get(addr_id)
             if addr and addr.has_valid_coordinates:
                 route_coords.append([addr.y_coord, addr.x_coord])
@@ -298,7 +331,8 @@ class FoliumRenderer:
         group_index: int
     ):
         """添加詳細路線（帶箭頭）"""
-        if len(group.addresses) < 2:
+        # 如果沒有路線順序，不繪製路線
+        if not group.route_order or len(group.addresses) < 2:
             return
 
         # 建立地址字典
@@ -306,9 +340,8 @@ class FoliumRenderer:
         
         # 按路線順序建立座標列表
         route_coords = []
-        route_order = group.route_order or [addr.id for addr in group.addresses]
         
-        for addr_id in route_order:
+        for addr_id in group.route_order:
             addr = addr_dict.get(addr_id)
             if addr and addr.has_valid_coordinates:
                 route_coords.append([addr.y_coord, addr.x_coord])

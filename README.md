@@ -154,6 +154,9 @@ survey_route_grouping/
 │       │   ├── map_visualizer.py   # 主要地圖視覺化類別
 │       │   ├── folium_renderer.py  # Folium 渲染器
 │       │   └── color_schemes.py    # 顏色配置
+│       ├── importers/              # 🆕 CSV 導入功能
+│       │   ├── __init__.py
+│       │   └── csv_importer.py     # CSV 分組結果導入器
 │       └── exporters/
 │           ├── __init__.py
 │           ├── csv_exporter.py     # CSV 輸出
@@ -220,6 +223,12 @@ uv run survey-grouping create-groups 新營區 三仙里 --target-size 40
 
 # 輸出 Excel 檔案
 uv run survey-grouping create-groups 新營區 三仙里 --output-format excel --output-file 三仙里普查分組.xlsx
+
+# 生成互動式地圖視覺化
+uv run survey-grouping visualize 新營區 三仙里
+
+# 從已存在的 CSV 檔案生成地圖（支援手動微調的分組）
+uv run survey-grouping visualize-from-csv output/分組結果.csv
 
 # 分析地址密度
 uv run survey-grouping analyze-density 新營區
@@ -317,6 +326,9 @@ uv run survey-grouping visualize 七股區 西寮里 --groups-only
 
 # 自訂目標分組大小
 uv run survey-grouping visualize 七股區 西寮里 --target-size 30
+
+# 從 CSV 檔案生成視覺化地圖（支援微調後的分組）
+uv run survey-grouping visualize-from-csv output/七股區西寮里分組結果.csv --output-dir maps/
 ```
 
 #### 輸出檔案結構
@@ -336,11 +348,46 @@ maps/
 - **圖層控制**：可切換顯示/隱藏不同分組
 - **統計面板**：顯示分組統計資訊（距離、時間、地址數量）
 
+### CSV 導入視覺化功能 🆕
+
+支援從既有的 CSV 分組結果檔案直接生成視覺化地圖，方便處理手動微調後的分組資料。
+
+#### 支援的 CSV 格式
+**必要欄位**：
+- `分組編號`：如「七股區西寮里-01」
+- `完整地址`：完整門牌地址
+- `區域`、`村里`、`鄰別`：行政區劃資訊
+- `經度`、`緯度`：WGS84 座標
+
+**Optional 欄位**（可省略）：
+- `分組大小`、`目標大小`：分組統計資訊
+- `預估距離(公尺)`、`預估時間(分鐘)`：路線資訊
+- `地址ID`、`訪問順序`：路線優化相關
+
+#### 使用範例
+```bash
+# 完整格式 CSV（包含路線順序）
+uv run survey-grouping visualize-from-csv output/完整分組結果.csv
+
+# 簡化格式 CSV（僅基本資訊，不顯示路線）
+uv run survey-grouping visualize-from-csv output/簡化分組結果.csv
+
+# 指定輸出目錄
+uv run survey-grouping visualize-from-csv data.csv --output-dir custom_maps/
+```
+
+#### 智慧處理邏輯
+- ✅ **有訪問順序**：顯示路線連線、順序編號、方向箭頭
+- ✅ **無訪問順序**：僅顯示分組標記點，不計算路線
+- ✅ **BOM 字元處理**：自動處理 UTF-8 BOM 編碼問題
+- ✅ **格式驗證**：自動檢查 CSV 格式並提供錯誤提示
+
 #### 使用場景
 - **志工培訓**：視覺化展示分組區域和路線
 - **現場導航**：志工可用手機開啟 HTML 檔案進行導航
 - **進度追蹤**：管理者可視化監控各組進度
 - **路線優化**：直觀檢視和調整分組策略
+- **微調支援**：匯出 CSV → 手動調整 → 重新視覺化
 
 ## 📊 輸出格式
 
