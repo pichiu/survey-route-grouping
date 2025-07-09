@@ -5,10 +5,13 @@
 
 import pytest
 from pathlib import Path
-from survey_grouping.visualizers.color_schemes import ColorScheme
-from survey_grouping.visualizers.map_visualizer import MapVisualizer
-from survey_grouping.visualizers.folium_renderer import FoliumRenderer
-from survey_grouping.exporters.map_exporter import MapExporter
+from unittest.mock import Mock, patch
+from src.survey_grouping.visualizers.color_schemes import ColorScheme
+from src.survey_grouping.visualizers.map_visualizer import MapVisualizer
+from src.survey_grouping.visualizers.folium_renderer import FoliumRenderer
+from src.survey_grouping.exporters.map_exporter import MapExporter
+from src.survey_grouping.models.group import RouteGroup
+from src.survey_grouping.models.address import Address
 
 
 class TestColorScheme:
@@ -84,7 +87,6 @@ class TestMapVisualizer:
 
     def test_get_map_summary(self, sample_addresses):
         """測試取得地圖摘要"""
-        from survey_grouping.models.group import RouteGroup
         
         groups = [
             RouteGroup(
@@ -129,7 +131,6 @@ class TestFoliumRenderer:
 
     def test_calculate_center(self, sample_addresses):
         """測試計算中心點"""
-        from survey_grouping.models.group import RouteGroup
         
         groups = [RouteGroup(group_id="G001", addresses=sample_addresses)]
         renderer = FoliumRenderer()
@@ -143,7 +144,6 @@ class TestFoliumRenderer:
 
     def test_calculate_group_center(self, sample_addresses):
         """測試計算分組中心點"""
-        from survey_grouping.models.group import RouteGroup
         
         group = RouteGroup(group_id="G001", addresses=sample_addresses[:3])
         renderer = FoliumRenderer()
@@ -166,7 +166,6 @@ class TestMapExporter:
 
     def test_get_export_summary(self, sample_addresses):
         """測試取得匯出摘要"""
-        from survey_grouping.models.group import RouteGroup
         
         groups = [
             RouteGroup(
@@ -199,7 +198,6 @@ class TestVisualizationIntegration:
 
     def test_visualization_pipeline(self, sample_addresses, tmp_path):
         """測試視覺化流程"""
-        from survey_grouping.models.group import RouteGroup
         
         # 建立測試分組
         groups = [
@@ -229,8 +227,6 @@ class TestVisualizationIntegration:
 
     def test_error_handling_no_coordinates(self):
         """測試無座標地址的錯誤處理"""
-        from survey_grouping.models.address import Address
-        from survey_grouping.models.group import RouteGroup
         
         # 建立無座標的地址
         addresses_no_coords = [
@@ -252,3 +248,156 @@ class TestVisualizationIntegration:
         
         assert summary["geographic_bounds"] is None
         assert summary["geographic_center"] is None
+
+
+# 新增的 CSV 導入和視覺化邏輯測試
+class TestFoliumRendererCSVSupport:
+    """測試 Folium 渲染器對 CSV 導入的支援"""
+    
+    @pytest.fixture
+    def addresses_with_coords(self):
+        """提供有座標的地址資料"""
+        return [
+            Address(
+                id=1, district='七股區', village='西寮里', neighborhood=1,
+                full_address='西寮1號', x_coord=120.096955, y_coord=23.169737
+            ),
+            Address(
+                id=2, district='七股區', village='西寮里', neighborhood=1,
+                full_address='西寮2號', x_coord=120.096739, y_coord=23.169929
+            )
+        ]
+    
+    @pytest.fixture
+    def group_with_route_order(self, addresses_with_coords):
+        """有訪問順序的分組"""
+        return RouteGroup(
+            group_id='七股區西寮里-01',
+            addresses=addresses_with_coords,
+            route_order=[1, 2],  # 有順序
+            estimated_distance=500.0,
+            estimated_time=30
+        )
+    
+    @pytest.fixture
+    def group_without_route_order(self, addresses_with_coords):
+        """沒有訪問順序的分組"""
+        return RouteGroup(
+            group_id='七股區西寮里-02',
+            addresses=addresses_with_coords,
+            route_order=[],  # 空的順序
+            estimated_distance=None,
+            estimated_time=None
+        )
+    
+    def test_add_route_line_with_order(self, group_with_route_order):
+        """測試有順序時添加路線"""
+        renderer = FoliumRenderer()
+        mock_feature_group = Mock()
+        
+        with patch('src.survey_grouping.visualizers.folium_renderer.folium') as mock_folium:
+            mock_polyline = Mock()
+            mock_folium.PolyLine.return_value = mock_polyline
+            
+            renderer._add_route_line(mock_feature_group, group_with_route_order, 0)
+            
+            # 檢查有建立路線
+            mock_folium.PolyLine.assert_called_once()
+            mock_polyline.add_to.assert_called_once_with(mock_feature_group)
+    
+    def test_add_route_line_without_order(self, group_without_route_order):
+        """測試沒有順序時不添加路線"""
+        renderer = FoliumRenderer()
+        mock_feature_group = Mock()
+        
+        with patch('src.survey_grouping.visualizers.folium_renderer.folium') as mock_folium:
+            renderer._add_route_line(mock_feature_group, group_without_route_order, 0)
+            
+            # 檢查沒有建立路線
+            mock_folium.PolyLine.assert_not_called()
+    
+    def test_add_detailed_route_with_order(self, group_with_route_order):
+        """測試有順序時添加詳細路線"""
+        renderer = FoliumRenderer()
+        mock_map = Mock()
+        
+        with patch('src.survey_grouping.visualizers.folium_renderer.folium') as mock_folium:
+            with patch('src.survey_grouping.visualizers.folium_renderer.plugins') as mock_plugins:
+                renderer._add_detailed_route(mock_map, group_with_route_order, 0)
+                
+                # 檢查有建立路線和箭頭
+                mock_folium.PolyLine.assert_called()
+                mock_plugins.PolyLineTextPath.assert_called()
+    
+    def test_add_detailed_route_without_order(self, group_without_route_order):
+        """測試沒有順序時不添加詳細路線"""
+        renderer = FoliumRenderer()
+        mock_map = Mock()
+        
+        with patch('src.survey_grouping.visualizers.folium_renderer.folium') as mock_folium:
+            with patch('src.survey_grouping.visualizers.folium_renderer.plugins') as mock_plugins:
+                renderer._add_detailed_route(mock_map, group_without_route_order, 0)
+                
+                # 檢查沒有建立路線元素
+                mock_folium.PolyLine.assert_not_called()
+                mock_plugins.PolyLineTextPath.assert_not_called()
+    
+    def test_add_ordered_markers_with_order(self, group_with_route_order):
+        """測試有順序時添加順序標記"""
+        renderer = FoliumRenderer()
+        mock_map = Mock()
+        
+        with patch('src.survey_grouping.visualizers.folium_renderer.folium') as mock_folium:
+            mock_marker = Mock()
+            mock_folium.Marker.return_value = mock_marker
+            mock_folium.DivIcon.return_value = Mock()
+            mock_folium.Popup.return_value = Mock()
+            
+            renderer._add_ordered_markers(mock_map, group_with_route_order, 0)
+            
+            # 檢查使用 DivIcon（順序編號標記）
+            mock_folium.DivIcon.assert_called()
+            assert mock_marker.add_to.call_count == 2
+    
+    def test_add_ordered_markers_without_order(self, group_without_route_order):
+        """測試沒有順序時添加一般標記"""
+        renderer = FoliumRenderer()
+        mock_map = Mock()
+        
+        with patch('src.survey_grouping.visualizers.folium_renderer.folium') as mock_folium:
+            mock_marker = Mock()
+            mock_folium.Marker.return_value = mock_marker
+            mock_folium.Icon.return_value = Mock()
+            mock_folium.Popup.return_value = Mock()
+            
+            renderer._add_ordered_markers(mock_map, group_without_route_order, 0)
+            
+            # 檢查使用一般 Icon（不是 DivIcon）
+            mock_folium.Icon.assert_called()
+            mock_folium.DivIcon.assert_not_called()
+            assert mock_marker.add_to.call_count == 2
+    
+    def test_visualization_logic_consistency(self, group_with_route_order, group_without_route_order):
+        """測試視覺化邏輯的一致性"""
+        renderer = FoliumRenderer()
+        
+        # 測試有順序的分組
+        with patch('src.survey_grouping.visualizers.folium_renderer.folium'):
+            mock_fg = Mock()
+            mock_map = Mock()
+            
+            # 應該添加路線
+            renderer._add_route_line(mock_fg, group_with_route_order, 0)
+            renderer._add_detailed_route(mock_map, group_with_route_order, 0)
+        
+        # 測試沒有順序的分組
+        with patch('src.survey_grouping.visualizers.folium_renderer.folium') as mock_folium:
+            mock_fg = Mock()
+            mock_map = Mock()
+            
+            # 不應該添加路線
+            renderer._add_route_line(mock_fg, group_without_route_order, 0)
+            renderer._add_detailed_route(mock_map, group_without_route_order, 0)
+            
+            # 檢查沒有呼叫 PolyLine
+            mock_folium.PolyLine.assert_not_called()
