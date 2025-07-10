@@ -10,6 +10,7 @@ from .exporters.excel_exporter import ExcelExporter
 from .exporters.map_exporter import MapExporter
 from .importers.csv_importer import CSVImporter
 from .models.group import RouteGroup
+from .models.strategy import GroupingStrategy, ClusteringAlgorithm, STRATEGY_DESCRIPTIONS, ALGORITHM_DESCRIPTIONS
 
 app = typer.Typer(help="台南市志工普查路線分組系統")
 console = Console()
@@ -419,6 +420,8 @@ def create_groups(
     village: str = typer.Argument(None, help="村里名稱，如：三仙里"),
     target_size: int | None = typer.Option(None, help="每組目標人數"),
     target_groups: int | None = typer.Option(None, help="目標分組數量（與 target-size 互斥）"),
+    grouping_strategy: GroupingStrategy = typer.Option(GroupingStrategy.AUTO, help="分組策略"),
+    clustering_algorithm: ClusteringAlgorithm = typer.Option(ClusteringAlgorithm.KMEANS, help="聚類演算法"),
     output_format: str = typer.Option("csv", help="輸出格式: csv, excel, json"),
     output_file: str | None = typer.Option(None, help="輸出檔案名稱"),
     input_csv: str | None = typer.Option(None, help="輸入 CSV 檔案路徑（若指定則從 CSV 讀取地址資料）"),
@@ -447,6 +450,10 @@ def create_groups(
                 effective_target_size = target_size
                 effective_target_groups = None
                 console.print(f"📊 每組目標人數: {effective_target_size}")
+
+            # 顯示選擇的策略
+            console.print(f"🎯 分組策略: {grouping_strategy.value} - {STRATEGY_DESCRIPTIONS[grouping_strategy]}")
+            console.print(f"🔬 聚類演算法: {clustering_algorithm.value} - {ALGORITHM_DESCRIPTIONS[clustering_algorithm]}")
 
             # 驗證參數
             if input_csv:
@@ -485,7 +492,12 @@ def create_groups(
                 console.print(f"🏠 開始處理 {csv_district} {csv_village} 的普查路線分組...")
                 
                 # 4. 執行分組
-                engine = GroupingEngine(target_size=effective_target_size, target_groups=effective_target_groups)
+                engine = GroupingEngine(
+                    target_size=effective_target_size, 
+                    target_groups=effective_target_groups,
+                    grouping_strategy=grouping_strategy,
+                    clustering_algorithm=clustering_algorithm
+                )
                 groups = engine.create_groups(addresses, csv_district, csv_village)
                 
                 # 5. 顯示結果
@@ -517,7 +529,12 @@ def create_groups(
                     return
 
                 # 3. 執行分組
-                engine = GroupingEngine(target_size=effective_target_size, target_groups=effective_target_groups)
+                engine = GroupingEngine(
+                    target_size=effective_target_size, 
+                    target_groups=effective_target_groups,
+                    grouping_strategy=grouping_strategy,
+                    clustering_algorithm=clustering_algorithm
+                )
                 groups = engine.create_groups(addresses, district, village)
 
                 # 4. 顯示結果
@@ -585,6 +602,49 @@ def export_groups(groups: list[RouteGroup], format_type: str, output_file: str, 
         exporter.export_grouping_result(result, output_file)
     else:
         raise ValueError(f"不支援的輸出格式: {format_type}")
+
+
+@app.command()
+def list_strategies():
+    """列出所有可用的分組策略和聚類演算法"""
+    
+    console.print("🎯 [bold]可用的分組策略[/bold]")
+    strategy_table = Table(show_header=True, header_style="bold magenta")
+    strategy_table.add_column("策略名稱", style="cyan")
+    strategy_table.add_column("說明", style="white")
+    
+    for strategy in GroupingStrategy:
+        strategy_table.add_row(
+            strategy.value,
+            STRATEGY_DESCRIPTIONS[strategy]
+        )
+    
+    console.print(strategy_table)
+    console.print()
+    
+    console.print("🔬 [bold]可用的聚類演算法[/bold]")
+    algorithm_table = Table(show_header=True, header_style="bold magenta")
+    algorithm_table.add_column("演算法名稱", style="cyan")
+    algorithm_table.add_column("說明", style="white")
+    
+    for algorithm in ClusteringAlgorithm:
+        algorithm_table.add_row(
+            algorithm.value,
+            ALGORITHM_DESCRIPTIONS[algorithm]
+        )
+    
+    console.print(algorithm_table)
+    console.print()
+    
+    console.print("💡 [bold]使用範例[/bold]")
+    console.print("# 使用地理聚類策略")
+    console.print("uv run survey-grouping create-groups --input-csv data.csv --grouping-strategy geographic")
+    console.print()
+    console.print("# 使用鄰別優先策略 + DBSCAN 演算法")
+    console.print("uv run survey-grouping create-groups --input-csv data.csv --grouping-strategy neighbor-first --clustering-algorithm dbscan")
+    console.print()
+    console.print("# 分成固定組數 + 純地理策略")
+    console.print("uv run survey-grouping create-groups --input-csv data.csv --target-groups 5 --grouping-strategy geographic")
 
 
 if __name__ == "__main__":

@@ -3,13 +3,20 @@ from collections import defaultdict
 from ..config.settings import settings
 from ..models.address import Address, AddressType
 from ..models.group import RouteGroup
+from ..models.strategy import GroupingStrategy, ClusteringAlgorithm
 from .address_classifier import AddressClassifier
 from .clustering import GeographicClustering
 from .route_optimizer import RouteOptimizer
 
 
 class GroupingEngine:
-    def __init__(self, target_size: int = None, target_groups: int = None):
+    def __init__(
+        self, 
+        target_size: int = None, 
+        target_groups: int = None,
+        grouping_strategy: GroupingStrategy = GroupingStrategy.AUTO,
+        clustering_algorithm: ClusteringAlgorithm = ClusteringAlgorithm.KMEANS
+    ):
         # 優先級：target_groups > target_size > 預設值
         if target_groups:
             self.target_groups = target_groups
@@ -18,8 +25,11 @@ class GroupingEngine:
             self.target_size = target_size or settings.default_group_size
             self.target_groups = None
         
+        self.grouping_strategy = grouping_strategy
+        self.clustering_algorithm = clustering_algorithm
+        
         self.classifier = AddressClassifier()
-        self.geo_clustering = GeographicClustering()
+        self.geo_clustering = GeographicClustering(clustering_algorithm)
         self.route_optimizer = RouteOptimizer()
 
     def create_groups(
@@ -30,23 +40,61 @@ class GroupingEngine:
     ) -> list[RouteGroup]:
         """主要分組邏輯"""
 
-        # 如果指定了目標組數，使用簡化的分組策略
+        # 根據分組策略選擇處理方式
         if self.target_groups:
+            # 指定組數模式
             return self._create_groups_by_target_count(addresses, district, village)
+        else:
+            # 指定組大小模式，根據策略分組
+            return self._create_groups_by_strategy(addresses, district, village)
+    
+    def _create_groups_by_strategy(
+        self,
+        addresses: list[Address],
+        district: str,
+        village: str,
+    ) -> list[RouteGroup]:
+        """根據指定策略進行分組"""
+        
+        if self.grouping_strategy == GroupingStrategy.AUTO:
+            # 原有的智能分類邏輯
+            enriched_addresses = self.classifier.enrich_addresses(addresses)
+            type_groups = self._group_by_type(enriched_addresses)
+            all_groups = []
+            for addr_type, addr_list in type_groups.items():
+                groups = self._process_address_type(addr_type, addr_list)
+                all_groups.extend(groups)
+        
+        elif self.grouping_strategy == GroupingStrategy.GEOGRAPHIC:
+            # 純地理聚類
+            all_groups = self.geo_clustering.cluster_by_coordinates(addresses, self.target_size)
+        
+        elif self.grouping_strategy == GroupingStrategy.STREET_FIRST:
+            # 優先按街道分組
+            all_groups = self._group_by_street_first(addresses)
+        
+        elif self.grouping_strategy == GroupingStrategy.NEIGHBOR_FIRST:
+            # 優先按鄰別分組
+            all_groups = self._group_by_neighbor_first(addresses)
+        
+        elif self.grouping_strategy == GroupingStrategy.DISTANCE_BASED:
+            # 基於距離的聚類
+            all_groups = self.geo_clustering.split_by_geography(addresses, self.target_size)
+        
+        elif self.grouping_strategy == GroupingStrategy.SIMPLE:
+            # 簡單平均分配
+            all_groups = self.geo_clustering._simple_split(addresses, self.target_size)
+        
+        else:
+            # 預設使用智能分類
+            enriched_addresses = self.classifier.enrich_addresses(addresses)
+            type_groups = self._group_by_type(enriched_addresses)
+            all_groups = []
+            for addr_type, addr_list in type_groups.items():
+                groups = self._process_address_type(addr_type, addr_list)
+                all_groups.extend(groups)
 
-        # 1. 地址分類
-        enriched_addresses = self.classifier.enrich_addresses(addresses)
-
-        # 2. 按類型分組
-        type_groups = self._group_by_type(enriched_addresses)
-
-        # 3. 各類型內部聚類
-        all_groups = []
-        for addr_type, addr_list in type_groups.items():
-            groups = self._process_address_type(addr_type, addr_list)
-            all_groups.extend(groups)
-
-        # 4. 生成分組 ID 和路線優化
+        # 生成分組 ID 和路線優化
         final_groups = []
         for i, group in enumerate(all_groups, 1):
             group_id = f"{district}{village}-{i:02d}"
@@ -244,3 +292,69 @@ class GroupingEngine:
             groups[group_idx].addresses.append(addr)
         
         return groups
+    
+    def _group_by_street_first(self, addresses: list[Address]) -> list[RouteGroup]:
+        """優先按街道分組的策略"""
+        # 按街道名稱分組（從完整地址中提取街道部分）
+        street_groups = defaultdict(list)
+        
+        for addr in addresses:
+            # 簡單提取街道名稱（可以改進）
+            street_key = self._extract_street_name(addr.full_address)
+            street_groups[street_key].append(addr)
+        
+        result_groups = []
+        for street, addr_list in street_groups.items():
+            if len(addr_list) <= self.target_size:
+                # 街道地址數量不超過目標大小，直接成組
+                result_groups.append(RouteGroup(addresses=addr_list, group_id=""))
+            else:
+                # 街道地址太多，需要進一步地理聚類分割
+                sub_groups = self.geo_clustering.cluster_by_coordinates(
+                    addr_list, self.target_size
+                )
+                result_groups.extend(sub_groups)
+        
+        return result_groups
+    
+    def _group_by_neighbor_first(self, addresses: list[Address]) -> list[RouteGroup]:
+        """優先按鄰別分組的策略"""
+        # 按鄰別分組
+        neighbor_groups = defaultdict(list)
+        
+        for addr in addresses:
+            neighbor_groups[addr.neighborhood].append(addr)
+        
+        result_groups = []
+        for neighbor, addr_list in neighbor_groups.items():
+            if len(addr_list) <= self.target_size:
+                # 鄰別地址數量不超過目標大小，直接成組
+                result_groups.append(RouteGroup(addresses=addr_list, group_id=""))
+            else:
+                # 鄰別地址太多，需要進一步地理聚類分割
+                sub_groups = self.geo_clustering.cluster_by_coordinates(
+                    addr_list, self.target_size
+                )
+                result_groups.extend(sub_groups)
+        
+        return result_groups
+    
+    def _extract_street_name(self, full_address: str) -> str:
+        """從完整地址中提取街道名稱"""
+        # 簡單的街道名稱提取邏輯
+        # 可以根據實際地址格式改進
+        
+        # 常見的街道關鍵字
+        street_keywords = ["路", "街", "巷", "弄", "大道", "Avenue", "Street", "Road"]
+        
+        for keyword in street_keywords:
+            if keyword in full_address:
+                # 找到關鍵字的位置，提取街道部分
+                parts = full_address.split(keyword)
+                if len(parts) >= 2:
+                    # 提取包含關鍵字的街道名稱部分
+                    street_part = parts[0].split()[-1] + keyword if parts[0] else keyword
+                    return street_part
+        
+        # 如果沒有找到街道關鍵字，使用前幾個字符作為分組依據
+        return full_address[:5] if len(full_address) > 5 else full_address

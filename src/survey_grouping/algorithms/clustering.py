@@ -4,11 +4,13 @@ from sklearn.preprocessing import StandardScaler
 
 from ..models.address import Address
 from ..models.group import RouteGroup
+from ..models.strategy import ClusteringAlgorithm
 from ..utils.geo_utils import GeoUtils
 
 
 class GeographicClustering:
-    def __init__(self):
+    def __init__(self, clustering_algorithm: ClusteringAlgorithm = ClusteringAlgorithm.KMEANS):
+        self.clustering_algorithm = clustering_algorithm
         self.geo_utils = GeoUtils()
 
     def cluster_by_coordinates(
@@ -54,10 +56,25 @@ class GeographicClustering:
 
         normalized_coords = scaler.fit_transform(weighted_coords)
 
-        # K-means 聚類
+        # 根據選擇的演算法進行聚類
         try:
-            kmeans = KMeans(n_clusters=n_clusters, random_state=42, n_init=10)
-            cluster_labels = kmeans.fit_predict(normalized_coords)
+            if self.clustering_algorithm == ClusteringAlgorithm.KMEANS:
+                kmeans = KMeans(n_clusters=n_clusters, random_state=42, n_init=10)
+                cluster_labels = kmeans.fit_predict(normalized_coords)
+            elif self.clustering_algorithm == ClusteringAlgorithm.DBSCAN:
+                # DBSCAN 參數調整
+                eps = 0.1  # 根據標準化後的座標調整
+                min_samples = max(2, target_size // 8)
+                dbscan = DBSCAN(eps=eps, min_samples=min_samples)
+                cluster_labels = dbscan.fit_predict(normalized_coords)
+                # 處理 DBSCAN 的噪音點(-1)
+                unique_labels = set(cluster_labels)
+                if -1 in unique_labels:
+                    unique_labels.remove(-1)
+                n_clusters = len(unique_labels)
+            else:
+                # 回退到簡單分割
+                return self._simple_split(valid_addresses, target_size)
 
             # 組織分組結果
             groups = []
@@ -213,10 +230,25 @@ class GeographicClustering:
 
         normalized_coords = scaler.fit_transform(weighted_coords)
 
-        # K-means 聚類
+        # 根據選擇的演算法進行聚類
         try:
-            kmeans = KMeans(n_clusters=n_clusters, random_state=42, n_init=10)
-            cluster_labels = kmeans.fit_predict(normalized_coords)
+            if self.clustering_algorithm == ClusteringAlgorithm.KMEANS:
+                kmeans = KMeans(n_clusters=n_clusters, random_state=42, n_init=10)
+                cluster_labels = kmeans.fit_predict(normalized_coords)
+            elif self.clustering_algorithm == ClusteringAlgorithm.DBSCAN:
+                # DBSCAN 參數調整
+                eps = 0.1  # 根據標準化後的座標調整
+                min_samples = max(2, target_size // 8)
+                dbscan = DBSCAN(eps=eps, min_samples=min_samples)
+                cluster_labels = dbscan.fit_predict(normalized_coords)
+                # 處理 DBSCAN 的噪音點(-1)
+                unique_labels = set(cluster_labels)
+                if -1 in unique_labels:
+                    unique_labels.remove(-1)
+                n_clusters = len(unique_labels)
+            else:
+                # 回退到簡單分割
+                return self._simple_split(valid_addresses, target_size)
 
             # 組織分組結果
             groups = []
