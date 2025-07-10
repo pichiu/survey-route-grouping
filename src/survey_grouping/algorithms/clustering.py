@@ -238,7 +238,8 @@ class GeographicClustering:
             elif self.clustering_algorithm == ClusteringAlgorithm.DBSCAN:
                 # DBSCAN 參數調整
                 eps = 0.1  # 根據標準化後的座標調整
-                min_samples = max(2, target_size // 8)
+                avg_size = len(valid_addresses) // target_groups
+                min_samples = max(2, avg_size // 4)
                 dbscan = DBSCAN(eps=eps, min_samples=min_samples)
                 cluster_labels = dbscan.fit_predict(normalized_coords)
                 # 處理 DBSCAN 的噪音點(-1)
@@ -248,7 +249,7 @@ class GeographicClustering:
                 n_clusters = len(unique_labels)
             else:
                 # 回退到簡單分割
-                return self._simple_split(valid_addresses, target_size)
+                return self._simple_split_by_target_groups(valid_addresses, target_groups)
 
             # 組織分組結果
             groups = []

@@ -11,7 +11,6 @@ import pandas as pd
 
 from survey_grouping.database.connection import get_supabase_client
 from survey_grouping.utils.address_utils import (
-    create_group_id,
     extract_address_number,
     get_neighborhood_mapping,
     standardize_village_address,
@@ -80,6 +79,11 @@ class VillageProcessor:
                                     if pd.notna(row["姓名"])
                                     else ""
                                 )
+                                serial_number = (
+                                    str(row["序號"]).strip()
+                                    if pd.notna(row["序號"])
+                                    else ""
+                                )
                                 address = str(row["地址"]).strip()
                                 
                                 # 驗證地址格式
@@ -88,6 +92,7 @@ class VillageProcessor:
                                         {
                                             "neighborhood": neighborhood_num,
                                             "name": name,
+                                            "serial_number": serial_number,
                                             "original_address": address,
                                             "sheet_name": sheet_name,
                                         },
@@ -196,17 +201,14 @@ class VillageProcessor:
             if coordinates:
                 processed_data.append(
                     {
-                        "group_id": create_group_id(
-                            self.district, self.village, item["neighborhood"]
-                        ),
+                        "serial_number": item["serial_number"],
+                        "name": item["name"],
                         "full_address": standardized_addr,
                         "district": self.district,
                         "village": self.village,
                         "neighborhood": item["neighborhood"],
                         "longitude": coordinates[0],
                         "latitude": coordinates[1],
-                        "original_address": item["original_address"],
-                        "name": item["name"],
                     },
                 )
             else:
@@ -247,9 +249,10 @@ class VillageProcessor:
         """
         df = pd.DataFrame(processed_data)
 
-        # 重新排序欄位以符合test.csv格式
+        # 重新排序欄位，包含序號和姓名
         columns = [
-            "group_id",
+            "serial_number",
+            "name",
             "full_address",
             "district",
             "village",
@@ -258,7 +261,7 @@ class VillageProcessor:
             "latitude",
         ]
         df = df[columns]
-        df.columns = ["分組編號", "完整地址", "區域", "村里", "鄰別", "經度", "緯度"]
+        df.columns = ["序號", "姓名", "完整地址", "區域", "村里", "鄰別", "經度", "緯度"]
 
         # 去重處理（如果需要）
         if remove_duplicates:
