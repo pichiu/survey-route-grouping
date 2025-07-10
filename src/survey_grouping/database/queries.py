@@ -247,6 +247,55 @@ class AddressQueries:
         except Exception as e:
             raise DatabaseError(f"計算距離矩陣失敗: {e}")
 
+    async def get_address_by_full_address(
+        self,
+        district: str,
+        village: str,
+        full_address: str,
+    ) -> Address | None:
+        """根據完整地址查詢特定地址"""
+        try:
+            response = (
+                self.supabase.table("addresses")
+                .select("*")
+                .eq("district", district)
+                .eq("village", village)
+                .eq("full_address", full_address)
+                .execute()
+            )
+
+            if response.data:
+                return Address(**response.data[0])
+            return None
+
+        except Exception as e:
+            raise DatabaseError(f"查詢地址失敗: {e}")
+
+    async def search_addresses_by_pattern(
+        self,
+        district: str,
+        village: str,
+        address_pattern: str,
+    ) -> list[Address]:
+        """使用模式匹配搜尋地址"""
+        try:
+            response = (
+                self.supabase.table("addresses")
+                .select("*")
+                .eq("district", district)
+                .eq("village", village)
+                .ilike("full_address", f"%{address_pattern}%")
+                .order("neighborhood", desc=False)
+                .order("full_address", desc=False)
+                .execute()
+            )
+
+            addresses = [Address(**addr) for addr in response.data]
+            return addresses
+
+        except Exception as e:
+            raise DatabaseError(f"搜尋地址失敗: {e}")
+
 
 class DatabaseError(Exception):
     pass

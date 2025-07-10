@@ -605,6 +605,83 @@ def export_groups(groups: list[RouteGroup], format_type: str, output_file: str, 
 
 
 @app.command()
+def query_coordinates(
+    district: str = typer.Argument(..., help="行政區名稱，如：七股區"),
+    village: str = typer.Argument(..., help="村里名稱，如：頂山里"),
+    address: str = typer.Argument(..., help="地址，如：頂山13號"),
+    neighborhood: int | None = typer.Option(None, help="鄰別（可選）"),
+):
+    """查詢特定地址的座標"""
+    import asyncio
+    
+    async def async_query_coordinates():
+        try:
+            supabase = get_supabase_client()
+            queries = AddressQueries(supabase)
+            
+            console.print(f"🔍 查詢座標: {district} {village} {address}")
+            
+            # 先嘗試完整地址查詢
+            full_address = address
+            result = await queries.get_address_by_full_address(district, village, full_address)
+            
+            if result:
+                console.print(f"✅ 找到地址: {result.full_address}")
+                console.print(f"📍 座標: {result.x_coord}, {result.y_coord}")
+                console.print(f"🏠 鄰別: {result.neighborhood}")
+                console.print(f"🔢 ID: {result.id}")
+                return
+            
+            # 如果沒找到，嘗試模糊搜尋
+            console.print("🔍 嘗試模糊搜尋...")
+            results = await queries.search_addresses_by_pattern(district, village, address)
+            
+            if results:
+                console.print(f"✅ 找到 {len(results)} 個相似地址:")
+                
+                table = Table(title="搜尋結果")
+                table.add_column("ID", style="cyan")
+                table.add_column("地址", style="white")
+                table.add_column("鄰別", justify="center")
+                table.add_column("經度", justify="right")
+                table.add_column("緯度", justify="right")
+                
+                for addr in results[:10]:  # 限制顯示前10筆
+                    table.add_row(
+                        str(addr.id),
+                        addr.full_address,
+                        str(addr.neighborhood),
+                        f"{addr.x_coord:.6f}" if addr.x_coord else "無",
+                        f"{addr.y_coord:.6f}" if addr.y_coord else "無"
+                    )
+                
+                console.print(table)
+                
+                if len(results) > 10:
+                    console.print(f"... 還有 {len(results) - 10} 筆結果")
+                
+            else:
+                console.print("❌ 找不到符合條件的地址")
+                
+                # 如果指定了鄰別，也嘗試查詢該鄰的所有地址
+                if neighborhood:
+                    console.print(f"🔍 查詢 {neighborhood} 鄰的所有地址...")
+                    neighborhood_addresses = await queries.get_addresses_by_neighborhood(district, village, neighborhood)
+                    
+                    if neighborhood_addresses:
+                        console.print(f"📍 {neighborhood} 鄰共有 {len(neighborhood_addresses)} 筆地址")
+                        for addr in neighborhood_addresses[:5]:  # 顯示前5筆
+                            console.print(f"  - {addr.full_address}")
+                        if len(neighborhood_addresses) > 5:
+                            console.print(f"  ... 還有 {len(neighborhood_addresses) - 5} 筆")
+                
+        except Exception as e:
+            console.print(f"❌ 查詢失敗: {e}")
+    
+    asyncio.run(async_query_coordinates())
+
+
+@app.command()
 def list_strategies():
     """列出所有可用的分組策略和聚類演算法"""
     
