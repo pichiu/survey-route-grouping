@@ -417,7 +417,8 @@ def visualize_from_csv(
 def create_groups(
     district: str = typer.Argument(None, help="行政區名稱，如：新營區"),
     village: str = typer.Argument(None, help="村里名稱，如：三仙里"),
-    target_size: int | None = typer.Option(35, help="每組目標人數"),
+    target_size: int | None = typer.Option(None, help="每組目標人數"),
+    target_groups: int | None = typer.Option(None, help="目標分組數量（與 target-size 互斥）"),
     output_format: str = typer.Option("csv", help="輸出格式: csv, excel, json"),
     output_file: str | None = typer.Option(None, help="輸出檔案名稱"),
     input_csv: str | None = typer.Option(None, help="輸入 CSV 檔案路徑（若指定則從 CSV 讀取地址資料）"),
@@ -428,6 +429,25 @@ def create_groups(
     
     async def async_create_groups():
         try:
+            # 驗證參數衝突
+            if target_size and target_groups:
+                console.print("❌ target-size 和 target-groups 參數不能同時使用，請選擇其中一個")
+                return
+            
+            # 如果都沒指定，使用預設的 target_size
+            if not target_size and not target_groups:
+                effective_target_size = 35
+                effective_target_groups = None
+                console.print(f"📊 使用預設每組人數: {effective_target_size}")
+            elif target_groups:
+                effective_target_size = None
+                effective_target_groups = target_groups
+                console.print(f"📊 目標分組數量: {effective_target_groups}")
+            else:
+                effective_target_size = target_size
+                effective_target_groups = None
+                console.print(f"📊 每組目標人數: {effective_target_size}")
+
             # 驗證參數
             if input_csv:
                 # 從 CSV 讀取模式
@@ -465,7 +485,7 @@ def create_groups(
                 console.print(f"🏠 開始處理 {csv_district} {csv_village} 的普查路線分組...")
                 
                 # 4. 執行分組
-                engine = GroupingEngine(target_size=target_size)
+                engine = GroupingEngine(target_size=effective_target_size, target_groups=effective_target_groups)
                 groups = engine.create_groups(addresses, csv_district, csv_village)
                 
                 # 5. 顯示結果
@@ -497,7 +517,7 @@ def create_groups(
                     return
 
                 # 3. 執行分組
-                engine = GroupingEngine(target_size=target_size)
+                engine = GroupingEngine(target_size=effective_target_size, target_groups=effective_target_groups)
                 groups = engine.create_groups(addresses, district, village)
 
                 # 4. 顯示結果

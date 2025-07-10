@@ -178,3 +178,94 @@ class GeographicClustering:
             start_idx = end_idx
         
         return groups
+    
+    def cluster_by_target_groups(
+        self,
+        addresses: list[Address],
+        target_groups: int,
+    ) -> list[RouteGroup]:
+        """基於目標組數進行地理聚類"""
+        
+        # 過濾有效座標
+        valid_addresses = [addr for addr in addresses if addr.has_valid_coordinates]
+
+        if not valid_addresses:
+            return [RouteGroup(addresses=addresses, group_id="")]
+
+        # 如果地址數量小於等於目標組數，每個地址一組
+        if len(valid_addresses) <= target_groups:
+            return [RouteGroup(addresses=[addr], group_id="") for addr in valid_addresses]
+        
+        # 確保組數不超過地址數量
+        n_clusters = min(target_groups, len(valid_addresses))
+        
+        # 準備座標資料 (經度, 緯度)
+        coordinates = np.array([addr.coordinates for addr in valid_addresses])
+
+        # WGS84 座標標準化 - 考慮緯度對距離的影響
+        scaler = StandardScaler()
+        # 對經度進行緯度加權，因為在不同緯度經度代表的實際距離不同
+        avg_lat = np.mean(coordinates[:, 1])
+        lat_weight = np.cos(np.radians(avg_lat))
+
+        weighted_coords = coordinates.copy()
+        weighted_coords[:, 0] *= lat_weight  # 經度加權
+
+        normalized_coords = scaler.fit_transform(weighted_coords)
+
+        # K-means 聚類
+        try:
+            kmeans = KMeans(n_clusters=n_clusters, random_state=42, n_init=10)
+            cluster_labels = kmeans.fit_predict(normalized_coords)
+
+            # 組織分組結果
+            groups = []
+            for cluster_id in range(n_clusters):
+                cluster_addresses = [
+                    addr
+                    for i, addr in enumerate(valid_addresses)
+                    if cluster_labels[i] == cluster_id
+                ]
+
+                if cluster_addresses:
+                    group = RouteGroup(addresses=cluster_addresses, group_id="")
+                    # 計算組內緊密度
+                    group.estimated_distance = (
+                        self.geo_utils.calculate_group_compactness(cluster_addresses)
+                    )
+                    groups.append(group)
+
+            return groups
+
+        except Exception as e:
+            # 聚類失敗時回退到簡單分組
+            return self._simple_split_by_target_groups(valid_addresses, target_groups)
+    
+    def _simple_split_by_target_groups(
+        self,
+        addresses: list[Address],
+        target_groups: int,
+    ) -> list[RouteGroup]:
+        """簡單的按目標組數平均分割"""
+        if not addresses or target_groups <= 0:
+            return []
+        
+        total_addresses = len(addresses)
+        base_size = total_addresses // target_groups
+        remainder = total_addresses % target_groups
+        
+        groups = []
+        start_idx = 0
+        
+        for i in range(target_groups):
+            # 前 remainder 組多分配一個地址
+            group_size = base_size + (1 if i < remainder else 0)
+            end_idx = start_idx + group_size
+            
+            group_addresses = addresses[start_idx:end_idx]
+            if group_addresses:  # 只有當組內有地址時才建立組
+                groups.append(RouteGroup(addresses=group_addresses, group_id=""))
+            
+            start_idx = end_idx
+        
+        return groups
