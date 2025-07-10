@@ -116,7 +116,7 @@ class VillageProcessor:
     def query_address_coordinates(
         self, standardized_address: str
     ) -> Optional[Tuple[float, float]]:
-        """查詢地址的經緯度
+        """查詢地址的經緯度（僅精確匹配）
         
         Args:
             standardized_address: 標準化後的地址
@@ -125,7 +125,7 @@ class VillageProcessor:
             經緯度座標元組，如果未找到則返回None
         """
         try:
-            # 精確匹配
+            # 僅進行精確匹配，不使用模糊匹配避免錯誤配對
             response = (
                 self.supabase.table("addresses")
                 .select("x_coord, y_coord")
@@ -139,27 +139,7 @@ class VillageProcessor:
                 addr = response.data[0]
                 return (float(addr["x_coord"]), float(addr["y_coord"]))
 
-            # 如果精確匹配失敗, 嘗試模糊匹配
-            search_term = extract_address_number(standardized_address)
-            response = (
-                self.supabase.table("addresses")
-                .select("x_coord, y_coord, full_address")
-                .eq("district", self.district)
-                .eq("village", self.village)
-                .ilike("full_address", f"%{search_term}%")
-                .execute()
-            )
-
-            if response.data:
-                # 選擇最相似的地址
-                best_match = response.data[0]
-                logger.info(
-                    "模糊匹配: %s -> %s",
-                    standardized_address,
-                    best_match["full_address"]
-                )
-                return (float(best_match["x_coord"]), float(best_match["y_coord"]))
-
+            # 找不到就返回None，不進行模糊匹配
             return None
 
         except Exception:
@@ -198,22 +178,26 @@ class VillageProcessor:
             # 查詢經緯度
             coordinates = self.query_address_coordinates(standardized_addr)
 
-            if coordinates:
-                processed_data.append(
+            # 無論是否找到座標都加入 processed_data，座標留空則為 None
+            processed_data.append(
+                {
+                    "serial_number": item["serial_number"],
+                    "name": item["name"],
+                    "full_address": standardized_addr,
+                    "district": self.district,
+                    "village": self.village,
+                    "neighborhood": item["neighborhood"],
+                    "longitude": coordinates[0] if coordinates else None,
+                    "latitude": coordinates[1] if coordinates else None,
+                },
+            )
+            
+            # 如果沒有座標，記錄到未匹配列表
+            if not coordinates:
+                unmatched_addresses.append(
                     {
                         "serial_number": item["serial_number"],
                         "name": item["name"],
-                        "full_address": standardized_addr,
-                        "district": self.district,
-                        "village": self.village,
-                        "neighborhood": item["neighborhood"],
-                        "longitude": coordinates[0],
-                        "latitude": coordinates[1],
-                    },
-                )
-            else:
-                unmatched_addresses.append(
-                    {
                         "original_address": item["original_address"],
                         "standardized_address": standardized_addr,
                         "neighborhood": item["neighborhood"],
@@ -221,7 +205,11 @@ class VillageProcessor:
                 )
 
         # 記錄處理結果
-        logger.info("成功處理 %d 筆地址", len(processed_data))
+        total_addresses = len(processed_data)
+        matched_count = total_addresses - len(unmatched_addresses)
+        logger.info("成功處理 %d 筆地址（匹配: %d, 未匹配: %d）", 
+                   total_addresses, matched_count, len(unmatched_addresses))
+        
         if unmatched_addresses:
             logger.warning("未匹配到 %d 筆地址:", len(unmatched_addresses))
             for addr in unmatched_addresses:
@@ -281,6 +269,41 @@ class VillageProcessor:
         logger.info("CSV文件已導出至: %s", output_path)
         logger.info("最終記錄數: %d 筆", len(df))
 
+    def export_unmatched_report(
+        self,
+        unmatched_addresses: List[Dict],
+        output_path: str,
+    ):
+        """導出未匹配地址報告
+        
+        Args:
+            unmatched_addresses: 未匹配的地址列表
+            output_path: 輸出路徑
+        """
+        if not unmatched_addresses:
+            logger.info("沒有未匹配的地址，跳過報告生成")
+            return
+            
+        df = pd.DataFrame(unmatched_addresses)
+        
+        # 排序欄位
+        columns = [
+            "serial_number",
+            "name", 
+            "neighborhood",
+            "original_address",
+            "standardized_address"
+        ]
+        df = df[columns]
+        df.columns = ["序號", "姓名", "鄰別", "原始地址", "標準化地址"]
+        
+        # 按鄰別和序號排序
+        df = df.sort_values(["鄰別", "序號"])
+        
+        df.to_csv(output_path, index=False, encoding="utf-8-sig")
+        logger.info("未匹配地址報告已導出至: %s", output_path)
+        logger.info("未匹配地址數: %d 筆", len(df))
+
 
 def main():
     """主函數，支援命令行參數"""
@@ -336,20 +359,21 @@ def main():
     # 導出CSV
     processor.export_to_csv(processed_data, args.output_path, args.remove_duplicates)
 
+    # 導出未匹配地址報告
+    if unmatched:
+        unmatched_report_path = args.output_path.replace(".csv", "_未匹配地址.csv")
+        processor.export_unmatched_report(unmatched, unmatched_report_path)
+
     # 輸出統計資訊
     logger.info("處理完成!")
-    logger.info("成功處理: %d 筆地址", len(processed_data))
-    logger.info("未匹配: %d 筆地址", len(unmatched))
+    total_count = len(processed_data)
+    matched_count = total_count - len(unmatched)
+    logger.info("總地址數: %d 筆", total_count)
+    logger.info("匹配成功: %d 筆 (%.1f%%)", matched_count, matched_count/total_count*100 if total_count > 0 else 0)
+    logger.info("未匹配: %d 筆 (%.1f%%)", len(unmatched), len(unmatched)/total_count*100 if total_count > 0 else 0)
 
     if unmatched:
-        logger.info("未匹配的地址:")
-        for addr in unmatched:
-            logger.info(
-                "  鄰別%d: %s -> %s",
-                addr["neighborhood"],
-                addr["original_address"],
-                addr["standardized_address"],
-            )
+        logger.info("未匹配地址報告已生成: %s", unmatched_report_path)
 
 
 if __name__ == "__main__":
