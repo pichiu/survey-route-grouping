@@ -9,6 +9,29 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+#### 🔍 地址座標查詢功能 🆕
+- **新增 `query-coordinates` 命令**：支援查詢特定地址的經緯度座標
+- **多層查詢策略**：
+  - 精確匹配：優先使用完整地址進行精確查詢
+  - 模糊搜尋：當精確匹配失敗時，自動進行模糊匹配搜尋
+  - 鄰別查詢：可選擇性指定鄰別，提供額外的上下文資訊
+- **格式化輸出**：
+  - 單一結果：顯示地址、座標、鄰別、資料庫ID
+  - 多重結果：以表格形式顯示搜尋結果，包含ID、地址、鄰別、經緯度
+  - 限制顯示：搜尋結果超過10筆時僅顯示前10筆，並提示總數
+- **命令使用範例**：
+  ```bash
+  # 基本座標查詢
+  uv run survey-grouping query-coordinates 七股區 頂山里 頂山13號
+  
+  # 指定鄰別進行查詢
+  uv run survey-grouping query-coordinates 七股區 頂山里 頂山13號 --neighborhood 1
+  ```
+- **資料庫查詢方法擴充**：
+  - `get_address_by_full_address()` 方法：精確地址查詢
+  - `search_addresses_by_pattern()` 方法：模糊地址搜尋
+  - 支援完整的異步查詢流程
+
 #### 🆕 CSV 輸入分組功能
 - **新增 `--input-csv` 參數**：`create-groups` 命令現在支援從 CSV 檔案讀取地址資料進行分組
 - **彈性輸入模式**：

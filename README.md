@@ -241,6 +241,9 @@ uv run survey-grouping analyze-density 新營區
 
 # 批次處理整個區
 uv run survey-grouping batch-process 新營區
+
+# 查詢特定地址的座標 🆕
+uv run survey-grouping query-coordinates 七股區 頂山里 頂山13號
 ```
 
 #### CSV 輸入格式 🆕
@@ -323,7 +326,13 @@ center = await queries.get_village_center("新營區", "三仙里")
 - **地理統計**：地址密度分析和熱點識別
 - **空間關係**：鄰近性分析和區域劃分
 
-### 3. 效能優化
+### 3. 地址查詢功能 🆕
+- **精確查詢**：根據完整地址查找座標資訊
+- **模糊搜尋**：支援部分地址匹配和相似地址搜尋
+- **批量查詢**：支援鄰別範圍內的地址查詢
+- **座標驗證**：即時檢查座標資料的準確性
+
+### 4. 效能優化
 - **統計快取**：address_stats 表提供快速統計
 - **空間索引**：GIST 索引加速空間查詢
 - **批次處理**：支援大量資料的高效處理
