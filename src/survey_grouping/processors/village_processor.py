@@ -4,6 +4,7 @@
 """
 import argparse
 import logging
+import re
 from pathlib import Path
 from typing import Dict, List, Optional, Tuple
 
@@ -18,6 +19,51 @@ from survey_grouping.utils.address_utils import (
 )
 
 logger = logging.getLogger(__name__)
+
+
+def convert_fullwidth_to_halfwidth(text: str) -> str:
+    """轉換全形數字為半形數字
+    
+    Args:
+        text: 包含全形數字的文字
+        
+    Returns:
+        轉換後的文字
+    """
+    if not text:
+        return text
+        
+    # 全形數字到半形數字的對應
+    fullwidth_map = {
+        '０': '0', '１': '1', '２': '2', '３': '3', '４': '4',
+        '５': '5', '６': '6', '７': '7', '８': '8', '９': '9'
+    }
+    
+    result = str(text)
+    for full, half in fullwidth_map.items():
+        result = result.replace(full, half)
+    
+    return result
+
+
+def extract_neighborhood_from_address(address: str) -> Optional[int]:
+    """從完整地址中提取鄰別編號
+    
+    Args:
+        address: 完整地址，如"臺南市七股區七股里13鄰七股123-12號"
+        
+    Returns:
+        鄰別編號，如果找不到則返回None
+    """
+    if not address:
+        return None
+        
+    # 尋找鄰別模式：數字+鄰
+    match = re.search(r'(\d+)鄰', address)
+    if match:
+        return int(match.group(1))
+    
+    return None
 
 
 class VillageProcessor:
@@ -66,6 +112,12 @@ class VillageProcessor:
             if '鄰' in first_sheet_df.columns:
                 logger.info("檢測到單工作表格式，直接從工作表讀取資料")
                 return self._read_single_sheet_format(excel_path, sheet_names[0])
+            
+            # 判斷是否為名冊格式（包含 '通訊地址' 欄位或第二行有 '通訊地址'）
+            if ('通訊地址' in first_sheet_df.columns or 
+                (len(first_sheet_df) > 1 and '通訊地址' in str(first_sheet_df.iloc[1].values))):
+                logger.info("檢測到名冊格式，使用名冊處理方式")
+                return self._read_roster_format(excel_path, sheet_names[0])
             
             # 多工作表格式，需要 neighborhood_mapping
             if neighborhood_mapping is None:
@@ -198,6 +250,169 @@ class VillageProcessor:
             logger.error(f"讀取單工作表格式失敗: {e}")
             raise
 
+    def _read_roster_format(self, excel_path: str, sheet_name: str) -> List[Dict]:
+        """讀取名冊格式的 Excel 資料
+        
+        期望格式：
+        Row 0: 標題（如"臺南市七股區七股里 名冊"）
+        Row 1: 欄位標題（編號, 鄉鎮市區村里, 姓名, 通訊地址）
+        Row 2: 空行
+        Row 3+: 實際資料
+        
+        Args:
+            excel_path: Excel 文件路徑
+            sheet_name: 工作表名稱
+            
+        Returns:
+            處理後的數據列表
+        """
+        all_data = []
+        invalid_addresses = []  # 記錄無效地址
+        
+        try:
+            df = pd.read_excel(excel_path, sheet_name=sheet_name)
+            
+            # 找到資料起始行（通常是第3行，index=3）
+            data_start_row = 3
+            
+            # 檢查是否有正確的標題行
+            if len(df) > 1:
+                header_row = df.iloc[1]
+                if '通訊地址' not in str(header_row.values):
+                    raise ValueError("找不到標準的名冊格式標題行")
+            
+            # 從資料起始行開始讀取
+            data_df = df.iloc[data_start_row:].copy()
+            data_df.columns = ['編號', '鄉鎮市區村里', '姓名', '通訊地址']
+            
+            # 移除空行
+            data_df = data_df.dropna(subset=['編號']).reset_index(drop=True)
+            
+            logger.info(f"名冊格式：找到 {len(data_df)} 筆原始資料")
+            
+            # 處理每一行資料
+            for _, row in data_df.iterrows():
+                if pd.notna(row['通訊地址']) and str(row['通訊地址']).strip():
+                    name = str(row['姓名']).strip() if pd.notna(row['姓名']) else ""
+                    serial_number = str(int(row['編號'])) if pd.notna(row['編號']) else ""
+                    raw_address = str(row['通訊地址']).strip()
+                    
+                    # 轉換全形數字
+                    address = convert_fullwidth_to_halfwidth(raw_address)
+                    
+                    # 檢查地址是否為目標區域和村里
+                    if f"{self.district}" in address and f"{self.village}" in address:
+                        # 提取鄰別資訊
+                        neighborhood = extract_neighborhood_from_address(address)
+                        
+                        if neighborhood is None:
+                            logger.warning(f"無法提取鄰別資訊: {address}")
+                            neighborhood = 0
+                        
+                        # 標準化地址格式（移除臺南市、區、里、鄰等前綴）
+                        standardized_addr = self._standardize_roster_address(address)
+                        
+                        # 驗證地址格式
+                        if validate_address_format(standardized_addr):
+                            all_data.append({
+                                "neighborhood": neighborhood,
+                                "name": name,
+                                "serial_number": serial_number,
+                                "original_address": raw_address,
+                                "standardized_address": standardized_addr,
+                                "sheet_name": sheet_name,
+                            })
+                        else:
+                            logger.warning("跳過無效地址格式: %s", standardized_addr)
+                            invalid_addresses.append({
+                                "serial_number": serial_number,
+                                "name": name,
+                                "raw_address": raw_address,
+                                "reason": "地址格式無效"
+                            })
+                    else:
+                        # 跨區或跨里地址
+                        logger.warning(f"跨區域地址: {address}")
+                        invalid_addresses.append({
+                            "serial_number": serial_number,
+                            "name": name,
+                            "raw_address": raw_address,
+                            "reason": f"非{self.district}{self.village}地址"
+                        })
+            
+            logger.info("成功讀取 %d 筆有效地址數據", len(all_data))
+            if invalid_addresses:
+                logger.warning("發現 %d 筆無效或跨區域地址", len(invalid_addresses))
+                # 將無效地址存為實例變數，供後續導出
+                self.invalid_addresses = invalid_addresses
+            
+            return all_data
+            
+        except Exception as e:
+            logger.error(f"讀取名冊格式失敗: {e}")
+            raise
+
+    def _standardize_roster_address(self, full_address: str) -> str:
+        """標準化名冊格式的完整地址
+        
+        將 "臺南市七股區七股里13鄰七股123-12號" 轉換為 "七股123號之12"
+        
+        Args:
+            full_address: 完整地址
+            
+        Returns:
+            標準化後的地址
+        """
+        address = full_address
+        
+        # 移除前綴部分
+        prefixes_to_remove = [
+            "臺南市", "台南市",
+            f"{self.district}",
+            f"{self.village}",
+        ]
+        
+        for prefix in prefixes_to_remove:
+            address = address.replace(prefix, "")
+        
+        # 移除鄰別資訊 (如 "13鄰")
+        address = re.sub(r'\d+鄰', '', address)
+        
+        # 清理多餘的空白和標點
+        address = address.strip()
+        
+        # 使用既有的標準化邏輯進行進一步轉換 (如 74-1號 -> 74號之1)
+        address = standardize_village_address(address, self.village, 
+                                            remove_village_suffix=False,  # 已經移除過了
+                                            convert_dash_to_zhi=True)     # 進行格式轉換
+        
+        return address
+
+    def export_invalid_addresses(self, output_path: str):
+        """導出無效或跨區域地址報告
+        
+        Args:
+            output_path: 輸出路徑
+        """
+        if not hasattr(self, 'invalid_addresses') or not self.invalid_addresses:
+            logger.info("沒有無效地址需要導出")
+            return
+            
+        df = pd.DataFrame(self.invalid_addresses)
+        
+        # 排序欄位
+        columns = ["serial_number", "name", "raw_address", "reason"]
+        df = df[columns]
+        df.columns = ["序號", "姓名", "原始地址", "問題原因"]
+        
+        # 按序號排序
+        df['序號_數字'] = pd.to_numeric(df['序號'], errors='coerce')
+        df = df.sort_values('序號_數字').drop('序號_數字', axis=1)
+        
+        df.to_csv(output_path, index=False, encoding="utf-8-sig")
+        logger.info("無效地址報告已導出至: %s", output_path)
+        logger.info("無效地址數: %d 筆", len(df))
+
     def query_address_coordinates(
         self, standardized_address: str
     ) -> Optional[Tuple[float, float]]:
@@ -256,9 +471,14 @@ class VillageProcessor:
 
         for item in raw_data:
             # 標準化地址
-            standardized_addr = standardize_village_address(
-                item["original_address"], self.village
-            )
+            if "standardized_address" in item:
+                # 名冊格式已經標準化過了
+                standardized_addr = item["standardized_address"]
+            else:
+                # 其他格式需要標準化
+                standardized_addr = standardize_village_address(
+                    item["original_address"], self.village
+                )
 
             # 查詢經緯度
             coordinates = self.query_address_coordinates(standardized_addr)
