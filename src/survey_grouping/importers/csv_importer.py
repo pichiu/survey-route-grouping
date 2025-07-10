@@ -198,8 +198,13 @@ class CSVImporter:
         
         return grouping_result
     
-    def validate_csv_format(self, file_path: str | Path) -> Tuple[bool, List[str]]:
-        """驗證 CSV 檔案格式"""
+    def validate_csv_format(self, file_path: str | Path, for_addresses_only: bool = False) -> Tuple[bool, List[str]]:
+        """驗證 CSV 檔案格式
+        
+        Args:
+            file_path: CSV 檔案路徑
+            for_addresses_only: 如果為 True，只檢查地址相關欄位（不需要分組編號）
+        """
         file_path = Path(file_path)
         errors = []
         
@@ -217,7 +222,13 @@ class CSVImporter:
                     headers = reader.fieldnames
                     
                     # 檢查必要欄位
-                    required_fields = ['分組編號', '完整地址', '區域', '村里', '鄰別', '經度', '緯度']
+                    if for_addresses_only:
+                        # 只檢查地址相關欄位
+                        required_fields = ['完整地址', '區域', '村里', '鄰別', '經度', '緯度']
+                    else:
+                        # 檢查分組結果相關欄位
+                        required_fields = ['分組編號', '完整地址', '區域', '村里', '鄰別', '經度', '緯度']
+                    
                     missing_fields = [field for field in required_fields if field not in headers]
                     
                     if missing_fields:
@@ -255,3 +266,53 @@ class CSVImporter:
             errors.append(f"無法使用支援的編碼 ({', '.join(encodings)}) 讀取檔案，最後錯誤: {last_error}")
         
         return len(errors) == 0, errors
+    
+    def import_addresses_from_csv(self, file_path: str | Path) -> List[Address]:
+        """從 CSV 檔案讀取地址資料並轉換為 Address 物件列表"""
+        file_path = Path(file_path)
+        
+        if not file_path.exists():
+            raise FileNotFoundError(f"CSV 檔案不存在: {file_path}")
+        
+        addresses = []
+        
+        # 嘗試使用不同編碼讀取檔案
+        encodings = ['utf-8-sig', 'utf-8']
+        last_error = None
+        
+        for encoding in encodings:
+            try:
+                with open(file_path, 'r', encoding=encoding) as f:
+                    reader = csv.DictReader(f)
+                    
+                    for row_num, row in enumerate(reader, start=2):  # 從第2行開始計算（第1行是標題）
+                        try:
+                            # 建立 Address 物件
+                            # 生成地址 ID（使用地址內容的哈希值）
+                            addr_id = hash(row['完整地址']) % 1000000
+                            
+                            address = Address(
+                                id=addr_id,
+                                district=row['區域'],
+                                village=row['村里'],
+                                neighborhood=int(row['鄰別']),
+                                full_address=row['完整地址'],
+                                x_coord=float(row['經度']),
+                                y_coord=float(row['緯度'])
+                            )
+                            addresses.append(address)
+                            
+                        except Exception as e:
+                            raise ValueError(f"解析 CSV 第 {row_num} 行時發生錯誤: {e}")
+                    
+                    # 成功讀取，跳出迴圈
+                    break
+                    
+            except (UnicodeDecodeError, UnicodeError) as e:
+                last_error = e
+                continue
+        else:
+            # 所有編碼都失敗
+            raise ValueError(f"無法使用支援的編碼 ({', '.join(encodings)}) 讀取檔案，最後錯誤: {last_error}")
+        
+        return addresses

@@ -415,42 +415,98 @@ def visualize_from_csv(
 
 @app.command()
 def create_groups(
-    district: str = typer.Argument(..., help="行政區名稱，如：新營區"),
-    village: str = typer.Argument(..., help="村里名稱，如：三仙里"),
+    district: str = typer.Argument(None, help="行政區名稱，如：新營區"),
+    village: str = typer.Argument(None, help="村里名稱，如：三仙里"),
     target_size: int | None = typer.Option(35, help="每組目標人數"),
     output_format: str = typer.Option("csv", help="輸出格式: csv, excel, json"),
     output_file: str | None = typer.Option(None, help="輸出檔案名稱"),
+    input_csv: str | None = typer.Option(None, help="輸入 CSV 檔案路徑（若指定則從 CSV 讀取地址資料）"),
 ):
     """為指定村里建立志工普查路線分組"""
     import asyncio
+    from pathlib import Path
     
     async def async_create_groups():
-        console.print(f"🏠 開始處理 {district} {village} 的普查路線分組...")
-
         try:
-            # 1. 連接資料庫
-            supabase = get_supabase_client()
-            queries = AddressQueries(supabase)
+            # 驗證參數
+            if input_csv:
+                # 從 CSV 讀取模式
+                csv_path = Path(input_csv)
+                if not csv_path.exists():
+                    console.print(f"❌ CSV 檔案不存在: {input_csv}")
+                    return
+                
+                console.print(f"📁 從 CSV 檔案讀取地址資料: {input_csv}")
+                
+                # 1. 驗證 CSV 檔案格式（地址資料格式）
+                importer = CSVImporter()
+                is_valid, errors = importer.validate_csv_format(csv_path, for_addresses_only=True)
+                
+                if not is_valid:
+                    console.print("❌ CSV 檔案格式驗證失敗:")
+                    for error in errors:
+                        console.print(f"   - {error}")
+                    return
+                
+                console.print("✅ CSV 檔案格式驗證通過")
+                
+                # 2. 讀取地址資料
+                addresses = importer.import_addresses_from_csv(csv_path)
+                console.print(f"📍 成功讀取 {len(addresses)} 筆地址")
+                
+                if not addresses:
+                    console.print("❌ CSV 檔案中沒有有效的地址資料")
+                    return
+                
+                # 3. 從 CSV 資料中取得區域和村里資訊
+                csv_district = addresses[0].district
+                csv_village = addresses[0].village
+                
+                console.print(f"🏠 開始處理 {csv_district} {csv_village} 的普查路線分組...")
+                
+                # 4. 執行分組
+                engine = GroupingEngine(target_size=target_size)
+                groups = engine.create_groups(addresses, csv_district, csv_village)
+                
+                # 5. 顯示結果
+                display_groups_summary(groups)
+                
+                # 6. 輸出檔案
+                if output_file:
+                    export_groups(groups, output_format, output_file, csv_district, csv_village)
+                    console.print(f"✅ 結果已輸出至 {output_file}")
+                
+            else:
+                # 從資料庫讀取模式（原有功能）
+                if not district or not village:
+                    console.print("❌ 必須指定行政區和村里名稱，或使用 --input-csv 參數從 CSV 檔案讀取")
+                    return
+                
+                console.print(f"🏠 開始處理 {district} {village} 的普查路線分組...")
 
-            # 2. 查詢地址資料
-            addresses = await queries.get_addresses_by_village(district, village)
-            console.print(f"📍 找到 {len(addresses)} 筆地址")
+                # 1. 連接資料庫
+                supabase = get_supabase_client()
+                queries = AddressQueries(supabase)
 
-            if not addresses:
-                console.print("❌ 找不到符合條件的地址資料")
-                return
+                # 2. 查詢地址資料
+                addresses = await queries.get_addresses_by_village(district, village)
+                console.print(f"📍 找到 {len(addresses)} 筆地址")
 
-            # 3. 執行分組
-            engine = GroupingEngine(target_size=target_size)
-            groups = engine.create_groups(addresses, district, village)
+                if not addresses:
+                    console.print("❌ 找不到符合條件的地址資料")
+                    return
 
-            # 4. 顯示結果
-            display_groups_summary(groups)
+                # 3. 執行分組
+                engine = GroupingEngine(target_size=target_size)
+                groups = engine.create_groups(addresses, district, village)
 
-            # 5. 輸出檔案
-            if output_file:
-                export_groups(groups, output_format, output_file, district, village)
-                console.print(f"✅ 結果已輸出至 {output_file}")
+                # 4. 顯示結果
+                display_groups_summary(groups)
+
+                # 5. 輸出檔案
+                if output_file:
+                    export_groups(groups, output_format, output_file, district, village)
+                    console.print(f"✅ 結果已輸出至 {output_file}")
 
         except Exception as e:
             console.print(f"❌ 處理失敗: {e}")
