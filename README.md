@@ -244,6 +244,9 @@ uv run survey-grouping batch-process 新營區
 
 # 查詢特定地址的座標 🆕
 uv run survey-grouping query-coordinates 七股區 頂山里 頂山13號
+
+# 使用 VillageProcessor 處理 Excel 數據 🆕
+uv run python src/survey_grouping/processors/village_processor.py --district 七股區 --village 頂山里 --excel-path data/頂山里200戶.xlsx
 ```
 
 #### CSV 輸入格式 🆕
@@ -270,6 +273,46 @@ uv run survey-grouping query-coordinates 七股區 頂山里 頂山13號
 - 📊 **資料探索**：對現有地址資料進行分組分析
 - 🔄 **工作流整合**：結合其他系統的 CSV 輸出進行處理
 - 📱 **小型專案**：適合地址數量較少的場景
+
+#### VillageProcessor Excel 處理 🆕
+支援將 Excel 村里數據轉換為標準化 CSV 格式並匹配座標：
+
+**支援的 Excel 格式**：
+1. **多工作表格式**：每個工作表代表一個鄰別
+2. **單工作表格式**：所有資料在一個工作表，包含鄰別欄位
+3. **名冊格式**：包含完整地址的名冊格式
+
+**核心功能**：
+- ✅ **地址標準化**：自動轉換 74-1號 → 74號之1
+- ✅ **全形轉半形**：支援全形數字轉換（１２３ → 123）
+- ✅ **精確匹配**：禁用模糊匹配避免錯誤配對
+- ✅ **跨區域過濾**：自動識別並分離跨區域地址
+- ✅ **未匹配報告**：生成詳細的未匹配地址清單
+
+**使用範例**：
+```bash
+# 處理 Excel 數據（自動格式偵測）
+uv run python src/survey_grouping/processors/village_processor.py \
+  --district 七股區 --village 七股里 \
+  --excel-path data/七股里.xlsx
+
+# 自訂輸出路徑
+uv run python src/survey_grouping/processors/village_processor.py \
+  --district 七股區 --village 頂山里 \
+  --excel-path data/頂山里200戶.xlsx \
+  --output-path output/頂山里處理結果.csv
+
+# 去除重複地址
+uv run python src/survey_grouping/processors/village_processor.py \
+  --district 七股區 --village 頂山里 \
+  --excel-path data/頂山里200戶.xlsx \
+  --remove-duplicates
+```
+
+**輸出檔案**：
+- `{區域}{村里}分組結果.csv`：主要結果檔案
+- `{區域}{村里}分組結果_未匹配地址.csv`：未匹配地址報告
+- `{區域}{村里}分組結果_無效地址.csv`：跨區域地址報告（名冊格式）
 
 ## 💻 程式化使用
 
@@ -332,7 +375,15 @@ center = await queries.get_village_center("新營區", "三仙里")
 - **批量查詢**：支援鄰別範圍內的地址查詢
 - **座標驗證**：即時檢查座標資料的準確性
 
-### 4. 效能優化
+### 4. VillageProcessor 資料處理器 🆕
+- **多格式支援**：自動偵測並支援多工作表、單工作表、名冊格式 Excel 檔案
+- **地址標準化**：智慧轉換地址格式（如 74-1號 → 74號之1）
+- **精確匹配**：禁用模糊匹配避免錯誤配對，提供更準確的座標匹配
+- **跨區域過濾**：自動識別並過濾跨區域地址，生成無效地址報告
+- **全形數字轉換**：支援全形數字自動轉半形（１２３ → 123）
+- **未匹配報告**：生成詳細的未匹配地址報告供手動處理
+
+### 5. 效能優化
 - **統計快取**：address_stats 表提供快速統計
 - **空間索引**：GIST 索引加速空間查詢
 - **批次處理**：支援大量資料的高效處理

@@ -72,6 +72,28 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - `import_addresses_from_csv()` 方法：從 CSV 讀取地址資料轉換為 Address 物件列表 🆕
   - `convert_to_route_groups()` 方法：轉換為 RouteGroup 物件
 
+#### 🏗️ VillageProcessor 多格式支援擴充 ✨
+- **新增名冊格式支援** (`src/survey_grouping/processors/village_processor.py`)：
+  - 自動偵測並支援三種 Excel 格式：多工作表、單工作表、名冊格式
+  - 新增 `_read_roster_format()` 方法：處理包含完整地址的名冊格式
+  - 新增 `convert_fullwidth_to_halfwidth()` 函數：全形數字自動轉半形（１２３ → 123）
+  - 新增 `extract_neighborhood_from_address()` 函數：從完整地址提取鄰別資訊
+  - 新增 `export_invalid_addresses()` 方法：導出跨區域地址報告
+
+#### 🔧 關鍵地址標準化修復 🚨
+- **修復 dash-to-zhi 轉換漏洞** (`_standardize_roster_address()` 方法)：
+  - **修復前**：名冊格式中的 "74-1號" 未被標準化，造成匹配失敗
+  - **修復後**：正確轉換 "74-1號" → "74號之1"，匹配率從 90.6% 提升至 96.9%
+  - 在 `_standardize_roster_address()` 中添加對 `standardize_village_address()` 的調用
+  - 確保 dash-to-zhi 轉換邏輯在所有格式中都能正確執行
+
+#### 🔍 跨區域地址處理強化
+- **智慧地址過濾** (`_read_roster_format()` 方法)：
+  - 自動識別非目標區域和村里的地址
+  - 將跨區域地址記錄到 `invalid_addresses` 列表
+  - 生成專門的無效地址報告，便於後續手動處理
+  - 提供詳細的問題原因說明（如："非七股區七股里地址"）
+
 ### Changed
 
 #### 🔒 VillageProcessor 精確匹配改進
@@ -96,6 +118,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - 參數調整：`district` 和 `village` 改為可選參數，支援 CSV 輸入模式
   - 整合 CSVImporter 到主要 CLI 介面
   - 改進錯誤處理和使用者提示訊息
+
+#### 🧪 全面測試覆蓋 ✅
+- **新增 TestUtilityFunctions 測試類別** (`tests/test_village_processor.py`)：
+  - `test_convert_fullwidth_to_halfwidth()`：測試全形數字轉換功能
+  - `test_extract_neighborhood_from_address()`：測試鄰別提取功能
+- **新增 TestRosterFormatProcessing 測試類別** (`tests/test_village_processor.py`)：
+  - `test_roster_format_detection()`：測試名冊格式自動偵測
+  - `test_roster_format_with_fullwidth_numbers()`：測試全形數字處理
+  - `test_roster_format_cross_district_filtering()`：測試跨區域地址過濾
+  - `test_standardize_roster_address_dash_to_zhi_conversion()`：**關鍵測試** - 驗證 dash-to-zhi 轉換修復
+  - `test_export_invalid_addresses_report()`：測試無效地址報告生成
+  - `test_roster_format_comprehensive_workflow()`：完整工作流程測試
+- **測試結果**：18 個測試全部通過，確保新功能穩定性
 
 ### Technical Details
 
@@ -139,6 +174,27 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
    ```bash
    # 適合小型專案或快速原型開發
    uv run survey-grouping create-groups --input-csv simple_addresses.csv
+   ```
+
+5. **VillageProcessor Excel 處理工作流** 🆕：
+   ```bash
+   # 處理頂山里 Excel 數據
+   uv run python src/survey_grouping/processors/village_processor.py \
+     --district 七股區 --village 頂山里 \
+     --excel-path data/頂山里200戶.xlsx
+   
+   # 處理鹽水區多個村里（單工作表格式）
+   uv run python src/survey_grouping/processors/village_processor.py \
+     --district 鹽水區 --village 文昌里 \
+     --excel-path data/鹽水區.xlsx
+   
+   # 處理七股里名冊格式
+   uv run python src/survey_grouping/processors/village_processor.py \
+     --district 七股區 --village 七股里 \
+     --excel-path data/七股里.xlsx
+   
+   # 檢查處理結果和匹配率
+   # 匹配率從原本的 90.6% 提升至 96.9%（dash-to-zhi 修復後）
    ```
 
 4. **批次視覺化處理**：
