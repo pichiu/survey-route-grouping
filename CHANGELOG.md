@@ -9,6 +9,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+#### 🆕 CSV 輸入分組功能
+- **新增 `--input-csv` 參數**：`create-groups` 命令現在支援從 CSV 檔案讀取地址資料進行分組
+- **彈性輸入模式**：
+  - 資料庫模式：使用 `district` 和 `village` 參數從 Supabase 讀取
+  - CSV 模式：使用 `--input-csv` 參數從本地 CSV 檔案讀取
+- **CSV 格式支援**：
+  - 必要欄位：完整地址、區域、村里、鄰別、經度、緯度
+  - 自動從 CSV 資料推斷區域和村里資訊
+  - 支援 UTF-8 和 UTF-8-BOM 編碼格式
+- **無資料庫依賴**：CSV 模式下無需連接 Supabase 資料庫即可進行分組
+
 #### 🆕 CSV 導入視覺化功能
 - **新增 `visualize-from-csv` 命令**：支援從既有的 CSV 分組結果直接生成視覺化地圖
 - **彈性 CSV 格式支援**：
@@ -26,8 +37,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **CSVImporter 類別** (`src/survey_grouping/importers/csv_importer.py`)：
   - `CSVGroupRow` 模型：CSV 資料列的 Pydantic 模型
   - `read_csv_file()` 方法：讀取和解析 CSV 檔案
-  - `validate_csv_format()` 方法：CSV 格式驗證
+  - `validate_csv_format()` 方法：CSV 格式驗證（支援地址資料和分組結果兩種模式）
   - `import_from_csv()` 方法：完整的 CSV 導入流程
+  - `import_addresses_from_csv()` 方法：從 CSV 讀取地址資料轉換為 Address 物件列表 🆕
   - `convert_to_route_groups()` 方法：轉換為 RouteGroup 物件
 
 ### Changed
@@ -42,6 +54,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 #### 📋 命令列介面擴充
 - **main.py 更新**：
   - 新增 `visualize-from-csv` 命令及其參數選項
+  - 修改 `create-groups` 命令支援 `--input-csv` 參數 🆕
+  - 參數調整：`district` 和 `village` 改為可選參數，支援 CSV 輸入模式
   - 整合 CSVImporter 到主要 CLI 介面
   - 改進錯誤處理和使用者提示訊息
 
@@ -60,7 +74,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Use Cases
 
 #### 🎯 應用場景擴充
-1. **分組微調工作流**：
+1. **CSV 輸入分組工作流** 🆕：
+   ```bash
+   # 從 CSV 檔案直接進行分組
+   uv run survey-grouping create-groups --input-csv data/addresses.csv --output-file result.csv
+   
+   # 自訂分組大小
+   uv run survey-grouping create-groups --input-csv data/addresses.csv --target-size 30
+   
+   # 輸出不同格式
+   uv run survey-grouping create-groups --input-csv addresses.csv --output-format excel
+   ```
+
+2. **分組微調工作流**：
    ```bash
    # 1. 生成初始分組
    uv run survey-grouping create-groups 七股區 西寮里 --output-format csv
@@ -71,13 +97,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
    uv run survey-grouping visualize-from-csv output/調整後的分組.csv
    ```
 
-2. **簡化資料處理**：
+3. **無資料庫環境使用** 🆕：
    ```bash
-   # 只有基本資訊的 CSV 也能直接視覺化
-   uv run survey-grouping visualize-from-csv simple_groups.csv
+   # 適合小型專案或快速原型開發
+   uv run survey-grouping create-groups --input-csv simple_addresses.csv
    ```
 
-3. **批次視覺化處理**：
+4. **批次視覺化處理**：
    ```bash
    # 為多個預先準備的 CSV 檔案生成地圖
    for file in *.csv; do
