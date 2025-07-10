@@ -37,13 +37,17 @@ class VillageProcessor:
     def read_excel_data(
         self, 
         excel_path: str, 
-        neighborhood_mapping: Dict[str, int]
+        neighborhood_mapping: Optional[Dict[str, int]] = None
     ) -> List[Dict]:
         """讀取Excel文件中的所有鄰別數據
         
+        支援兩種格式：
+        1. 多工作表格式：每個工作表代表一個鄰別，需要 neighborhood_mapping
+        2. 單工作表格式：所有資料在一個工作表中，包含鄰別欄位
+        
         Args:
             excel_path: Excel文件路徑
-            neighborhood_mapping: 鄰別名稱到編號的對應字典
+            neighborhood_mapping: 鄰別名稱到編號的對應字典（多工作表格式時需要）
             
         Returns:
             處理後的數據列表
@@ -51,9 +55,27 @@ class VillageProcessor:
         all_data = []
 
         try:
-            sheet_names = list(neighborhood_mapping.keys())
+            # 檢查 Excel 文件結構，決定使用哪種格式
+            xl_file = pd.ExcelFile(excel_path)
+            sheet_names = xl_file.sheet_names
             
-            for sheet_name in sheet_names:
+            # 嘗試讀取第一個工作表來判斷格式
+            first_sheet_df = pd.read_excel(excel_path, sheet_name=sheet_names[0])
+            
+            # 判斷是否為單工作表格式（包含 '鄰' 欄位）
+            if '鄰' in first_sheet_df.columns:
+                logger.info("檢測到單工作表格式，直接從工作表讀取資料")
+                return self._read_single_sheet_format(excel_path, sheet_names[0])
+            
+            # 多工作表格式，需要 neighborhood_mapping
+            if neighborhood_mapping is None:
+                raise ValueError("多工作表格式需要提供 neighborhood_mapping")
+                
+            logger.info("檢測到多工作表格式，使用 neighborhood_mapping")
+            
+            target_sheet_names = list(neighborhood_mapping.keys())
+            
+            for sheet_name in target_sheet_names:
                 try:
                     df = pd.read_excel(excel_path, sheet_name=sheet_name)
 
@@ -111,6 +133,69 @@ class VillageProcessor:
 
         except Exception:
             logger.exception("讀取Excel文件失敗")
+            raise
+
+    def _read_single_sheet_format(self, excel_path: str, sheet_name: str) -> List[Dict]:
+        """讀取單工作表格式的 Excel 資料
+        
+        期望欄位：編號, 行政區, 里, 鄰, 地址, 姓名
+        
+        Args:
+            excel_path: Excel 文件路徑
+            sheet_name: 工作表名稱
+            
+        Returns:
+            處理後的數據列表
+        """
+        all_data = []
+        
+        try:
+            df = pd.read_excel(excel_path, sheet_name=sheet_name)
+            
+            # 檢查必要欄位
+            required_columns = ['編號', '行政區', '里', '鄰', '地址', '姓名']
+            missing_columns = [col for col in required_columns if col not in df.columns]
+            if missing_columns:
+                raise ValueError(f"缺少必要欄位: {missing_columns}")
+            
+            # 過濾出符合當前處理器設定的資料
+            # 篩選符合區域和村里的資料
+            filtered_df = df[
+                (df['行政區'] == self.district) & 
+                (df['里'] == self.village)
+            ]
+            
+            if len(filtered_df) == 0:
+                logger.warning(f"在工作表 {sheet_name} 中找不到 {self.district} {self.village} 的資料")
+                return all_data
+            
+            logger.info(f"找到 {len(filtered_df)} 筆 {self.district} {self.village} 的資料")
+            
+            # 處理每一行資料
+            for _, row in filtered_df.iterrows():
+                if pd.notna(row['地址']) and str(row['地址']).strip():
+                    name = str(row['姓名']).strip() if pd.notna(row['姓名']) else ""
+                    serial_number = str(row['編號']).strip() if pd.notna(row['編號']) else ""
+                    address = str(row['地址']).strip()
+                    neighborhood = int(row['鄰']) if pd.notna(row['鄰']) else 0
+                    
+                    # 驗證地址格式
+                    if validate_address_format(address):
+                        all_data.append({
+                            "neighborhood": neighborhood,
+                            "name": name,
+                            "serial_number": serial_number,
+                            "original_address": address,
+                            "sheet_name": sheet_name,
+                        })
+                    else:
+                        logger.warning("跳過無效地址格式: %s", address)
+            
+            logger.info("成功讀取 %d 筆地址數據", len(all_data))
+            return all_data
+            
+        except Exception as e:
+            logger.error(f"讀取單工作表格式失敗: {e}")
             raise
 
     def query_address_coordinates(

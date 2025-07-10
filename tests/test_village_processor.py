@@ -163,6 +163,67 @@ class TestVillageProcessor:
             if os.path.exists(tmp_path):
                 os.unlink(tmp_path)
     
+    def test_single_sheet_format_detection(self, mock_supabase_response):
+        """Test automatic detection of single sheet format"""
+        # Create processor for matching data
+        with patch('survey_grouping.processors.village_processor.get_supabase_client'):
+            processor = VillageProcessor("鹽水區", "文昌里")
+        
+        # Mock Excel file with single sheet format
+        single_sheet_data = pd.DataFrame([
+            {"編號": 1, "行政區": "鹽水區", "里": "文昌里", "鄰": 11, "地址": "羊稠厝22號", "姓名": "邱樹"},
+            {"編號": 2, "行政區": "鹽水區", "里": "文昌里", "鄰": 6, "地址": "番子寮2號", "姓名": "蔡澄山"},
+        ])
+        
+        with patch('pandas.ExcelFile') as mock_excel_file, \
+             patch('pandas.read_excel') as mock_read_excel:
+            
+            # Mock ExcelFile
+            mock_excel_file.return_value.sheet_names = ["鹽水區"]
+            
+            # Mock read_excel calls
+            mock_read_excel.return_value = single_sheet_data
+            
+            # Test that it detects single sheet format automatically
+            data = processor.read_excel_data("dummy_path.xlsx")
+            
+            # Should have called read_excel twice (once for detection, once for processing)
+            assert mock_read_excel.call_count == 2
+            
+            # Should return data in correct format
+            assert len(data) == 2
+            assert data[0]["neighborhood"] == 11
+            assert data[0]["original_address"] == "羊稠厝22號"
+            assert data[1]["neighborhood"] == 6
+            assert data[1]["original_address"] == "番子寮2號"
+
+    def test_multi_sheet_format_with_mapping(self, processor, mock_supabase_response):
+        """Test multi-sheet format still works with neighborhood_mapping"""
+        # Mock Excel file with multi-sheet format
+        multi_sheet_data = pd.DataFrame([
+            {"col1": "序號", "col2": "姓名", "col3": "地址"},
+            {"col1": "1", "col2": "陳金鐘", "col3": "頂山2號之3"},
+        ])
+        
+        neighborhood_mapping = {"第一鄰": 1}
+        
+        with patch('pandas.ExcelFile') as mock_excel_file, \
+             patch('pandas.read_excel') as mock_read_excel:
+            
+            # Mock ExcelFile
+            mock_excel_file.return_value.sheet_names = ["第一鄰"]
+            
+            # Mock read_excel calls - first call has no '鄰' column
+            mock_read_excel.return_value = multi_sheet_data
+            
+            # Test with neighborhood_mapping provided
+            data = processor.read_excel_data("dummy_path.xlsx", neighborhood_mapping)
+            
+            # Should process as multi-sheet format
+            assert len(data) == 1
+            assert data[0]["neighborhood"] == 1
+            assert data[0]["original_address"] == "頂山2號之3"
+
     def test_export_to_csv_with_none_coordinates(self, processor):
         """Test CSV export handles None coordinates correctly"""
         processed_data = [
