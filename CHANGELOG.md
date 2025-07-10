@@ -9,6 +9,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+#### 🛠️ VillageProcessor 資料處理器
+- **新增 VillageProcessor 類別** (`src/survey_grouping/processors/village_processor.py`)：
+  - 通用村里數據處理器，支援 Excel 數據轉換為 CSV 格式並匹配座標
+  - 地址標準化和 Supabase 座標匹配功能
+  - 完整的工作流程：Excel → 標準化地址 → 座標查詢 → CSV 輸出
+  - 未匹配地址報告生成，支援後續手動處理
+
 #### 🔍 地址座標查詢功能 🆕
 - **新增 `query-coordinates` 命令**：支援查詢特定地址的經緯度座標
 - **多層查詢策略**：
@@ -66,6 +73,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - `convert_to_route_groups()` 方法：轉換為 RouteGroup 物件
 
 ### Changed
+
+#### 🔒 VillageProcessor 精確匹配改進
+- **禁用模糊匹配** (`src/survey_grouping/processors/village_processor.py`)：
+  - 移除 `query_address_coordinates()` 方法中的模糊匹配邏輯
+  - 僅使用精確匹配避免錯誤的地址配對（如 頂山2號之3 誤配到 頂山23號）
+  - 找不到匹配的地址直接返回 None，不進行模糊搜尋
+  - 所有地址（包含未匹配）都會加入最終 CSV 輸出，座標留空為 None
+  - 新增完整的測試覆蓋，包含精確匹配驗證和模糊匹配禁用測試
 
 #### 🎨 視覺化邏輯優化
 - **FoliumRenderer 改進** (`src/survey_grouping/visualizers/folium_renderer.py`)：
