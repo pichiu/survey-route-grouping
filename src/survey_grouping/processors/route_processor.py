@@ -170,7 +170,15 @@ class RouteProcessor(VillageProcessor):
             return True
         
         # 檢查是否包含鄰別信息和村里名稱
-        return re.search(r'\d+鄰', address) and village_name_only in address
+        if re.search(r'\d+鄰', address) and village_name_only in address:
+            return True
+        
+        # 檢查是否為純鄰別+門牌格式（如：1鄰2-7號）
+        # 這種格式通常出現在單一村里的Excel檔案中
+        if re.search(r'^\d+鄰\d+', address):
+            return True
+        
+        return False
     
     def _is_different_village_address(self, address: str) -> bool:
         """檢查是否為不同村里的地址（包含區名但不是目標村里）"""
@@ -258,9 +266,17 @@ class RouteProcessor(VillageProcessor):
         # 例如：1鄰西寮２號 -> 西寮2號
         #      003鄰西寮16號 -> 西寮16號
         #      西寮29號 -> 西寮29號
+        #      1鄰2-7號 -> 龍山2號之7（需要添加村里名稱）
+        
+        village_name_only = self.village.replace("里", "")
         
         # 移除鄰別前綴
         address = re.sub(r'^\d+鄰', '', address)
+        
+        # 如果地址不包含村里名稱，則添加村里名稱
+        if village_name_only not in address and not re.search(r'[\u4e00-\u9fff]', address):
+            # 純數字地址，添加村里名稱
+            address = f"{village_name_only}{address}"
         
         # 標準化門牌號碼格式
         address = self._standardize_house_number(address)
