@@ -94,6 +94,32 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - 生成專門的無效地址報告，便於後續手動處理
   - 提供詳細的問題原因說明（如："非七股區七股里地址"）
 
+#### 🌐 VillageProcessor 跨村里處理功能 🆕
+- **新增 `--include-cross-village` 參數**：
+  - 支援同區其他村里地址的座標匹配和處理
+  - 維持向後相容性：預設為單村里嚴格模式
+  - 新增 `include_cross_village` 初始化參數到 VillageProcessor 類別
+- **雙模式處理架構**：
+  - **單村里模式（預設）**：只處理目標村里地址，跨村里地址歸類為無效地址
+  - **跨村里模式**：處理目標村里 + 同區其他村里地址，各自匹配對應座標
+- **新增方法擴充**：
+  - `_standardize_cross_village_address()` 方法：跨村里地址標準化邏輯
+  - `_extract_village_name()` 方法：從完整地址中提取村里名稱
+  - `export_cross_village_addresses()` 方法：導出跨村里地址 CSV 報告
+  - `query_address_coordinates()` 新增 `target_village` 參數：支援指定村里查詢
+- **處理邏輯改進**：
+  - 跨村里地址自動提取村里名稱用於精確座標查詢
+  - 修改 `process_data()` 回傳值：`(processed_data, unmatched, cross_village)` 
+  - 在 `_read_roster_format()` 中分離跨村里地址到獨立資料結構
+- **輸出檔案擴充**：
+  - 新增 `{區域}{村里}分組結果_跨村里地址.csv` 報告檔案
+  - 跨村里地址包含：序號、姓名、完整地址、區域、村里、鄰別、經緯度
+  - CLI 自動生成跨村里地址報告（當有資料且啟用跨村里模式時）
+- **實際應用價值**：
+  - 解決名冊資料包含混合村里地址的實際需求
+  - 提供彈性的處理模式滿足不同普查場景
+  - 保持資料完整性：所有地址都能得到適當處理和分類
+
 ### Changed
 
 #### 🔒 VillageProcessor 精確匹配改進
@@ -130,7 +156,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - `test_standardize_roster_address_dash_to_zhi_conversion()`：**關鍵測試** - 驗證 dash-to-zhi 轉換修復
   - `test_export_invalid_addresses_report()`：測試無效地址報告生成
   - `test_roster_format_comprehensive_workflow()`：完整工作流程測試
-- **測試結果**：18 個測試全部通過，確保新功能穩定性
+- **新增 TestCrossVillageProcessing 測試類別** (`tests/test_village_processor.py`) 🆕：
+  - `test_cross_village_parameter_initialization()`：測試 include_cross_village 參數初始化
+  - `test_cross_village_address_detection_enabled()`：測試跨村里地址偵測（啟用模式）
+  - `test_cross_village_address_detection_disabled()`：測試跨村里地址偵測（預設模式）
+  - `test_standardize_cross_village_address()`：測試跨村里地址標準化邏輯
+  - `test_extract_village_name()`：測試村里名稱提取功能
+  - `test_query_address_coordinates_with_target_village()`：測試指定村里座標查詢
+  - `test_process_data_with_cross_village_enabled()`：測試跨村里完整資料處理流程
+  - `test_export_cross_village_addresses()`：測試跨村里地址 CSV 導出
+  - `test_roster_format_with_variable_columns()`：測試不同欄位數量的名冊格式處理
+  - `test_comprehensive_cross_village_workflow()`：綜合跨村里工作流程測試
+- **測試結果**：29 個測試全部通過（新增 11 個跨村里功能測試），確保新功能穩定性與向後相容性
 
 ### Technical Details
 
@@ -193,8 +230,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
      --district 七股區 --village 七股里 \
      --excel-path data/七股里.xlsx
    
+   # 🆕 跨村里處理模式（處理同區其他村里地址）
+   uv run python src/survey_grouping/processors/village_processor.py \
+     --district 七股區 --village 七股里 \
+     --excel-path data/七股里.xlsx \
+     --include-cross-village
+   
    # 檢查處理結果和匹配率
    # 匹配率從原本的 90.6% 提升至 96.9%（dash-to-zhi 修復後）
+   # 跨村里模式額外提供塩埕里等其他村里地址的座標匹配
    ```
 
 4. **批次視覺化處理**：

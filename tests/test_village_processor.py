@@ -537,3 +537,355 @@ class TestRosterFormatProcessing:
             assert hasattr(processor, 'invalid_addresses')
             assert len(processor.invalid_addresses) == 1
             assert processor.invalid_addresses[0]["name"] == "黃文騫"
+
+
+class TestCrossVillageProcessing:
+    """Test cases for cross-village processing functionality"""
+    
+    @pytest.fixture
+    def processor_with_cross_village(self):
+        """Create a VillageProcessor instance with cross-village enabled"""
+        with patch('survey_grouping.processors.village_processor.get_supabase_client'):
+            return VillageProcessor("七股區", "七股里", include_cross_village=True)
+    
+    @pytest.fixture
+    def processor_without_cross_village(self):
+        """Create a VillageProcessor instance with cross-village disabled (default)"""
+        with patch('survey_grouping.processors.village_processor.get_supabase_client'):
+            return VillageProcessor("七股區", "七股里", include_cross_village=False)
+    
+    def test_cross_village_parameter_initialization(self):
+        """Test that include_cross_village parameter is properly initialized"""
+        with patch('survey_grouping.processors.village_processor.get_supabase_client'):
+            # Test default behavior (cross-village disabled)
+            processor_default = VillageProcessor("七股區", "七股里")
+            assert processor_default.include_cross_village is False
+            
+            # Test explicit False
+            processor_false = VillageProcessor("七股區", "七股里", include_cross_village=False)
+            assert processor_false.include_cross_village is False
+            
+            # Test explicit True
+            processor_true = VillageProcessor("七股區", "七股里", include_cross_village=True)
+            assert processor_true.include_cross_village is True
+    
+    def test_cross_village_address_detection_enabled(self, processor_with_cross_village):
+        """Test cross-village address detection when enabled"""
+        # Mock roster data with cross-village addresses
+        roster_data = pd.DataFrame([
+            ["臺南市七股區七股里 名冊", None, None, None],
+            ["編號", "鄉鎮市區村里", "姓名", "通訊地址"],
+            [None, None, None, None],
+            [1, "臺南市七股區七股里", "本里住戶", "臺南市七股區七股里13鄰七股123號"],
+            [2, "臺南市七股區七股里", "跨村里住戶", "臺南市七股區塩埕里6鄰鹽埕237號之3"],
+            [3, "臺南市七股區七股里", "跨區住戶", "臺南市安南區七股116號之19"],
+        ])
+        
+        with patch('pandas.ExcelFile') as mock_excel_file, \
+             patch('pandas.read_excel') as mock_read_excel:
+            
+            mock_excel_file.return_value.sheet_names = ["七股里"]
+            mock_read_excel.return_value = roster_data
+            
+            data = processor_with_cross_village.read_excel_data("dummy_path.xlsx")
+            
+            # Should process main village address
+            assert len(data) == 1
+            assert data[0]["name"] == "本里住戶"
+            
+            # Should have recorded cross-village address
+            assert hasattr(processor_with_cross_village, 'cross_village_data')
+            assert len(processor_with_cross_village.cross_village_data) == 1
+            assert processor_with_cross_village.cross_village_data[0]["name"] == "跨村里住戶"
+            assert processor_with_cross_village.cross_village_data[0]["standardized_address"] == "塩埕里鹽埕237號之3"
+            
+            # Should have recorded invalid (cross-district) address
+            assert hasattr(processor_with_cross_village, 'invalid_addresses')
+            assert len(processor_with_cross_village.invalid_addresses) == 1
+            assert processor_with_cross_village.invalid_addresses[0]["name"] == "跨區住戶"
+    
+    def test_cross_village_address_detection_disabled(self, processor_without_cross_village):
+        """Test cross-village address detection when disabled (default behavior)"""
+        # Mock roster data with cross-village addresses
+        roster_data = pd.DataFrame([
+            ["臺南市七股區七股里 名冊", None, None, None],
+            ["編號", "鄉鎮市區村里", "姓名", "通訊地址"],
+            [None, None, None, None],
+            [1, "臺南市七股區七股里", "本里住戶", "臺南市七股區七股里13鄰七股123號"],
+            [2, "臺南市七股區七股里", "跨村里住戶", "臺南市七股區塩埕里6鄰鹽埕237號之3"],
+        ])
+        
+        with patch('pandas.ExcelFile') as mock_excel_file, \
+             patch('pandas.read_excel') as mock_read_excel:
+            
+            mock_excel_file.return_value.sheet_names = ["七股里"]
+            mock_read_excel.return_value = roster_data
+            
+            data = processor_without_cross_village.read_excel_data("dummy_path.xlsx")
+            
+            # Should process main village address
+            assert len(data) == 1
+            assert data[0]["name"] == "本里住戶"
+            
+            # Should NOT have recorded cross-village address (treated as invalid)
+            assert not hasattr(processor_without_cross_village, 'cross_village_data') or not processor_without_cross_village.cross_village_data
+            
+            # Should have recorded cross-village address as invalid
+            assert hasattr(processor_without_cross_village, 'invalid_addresses')
+            assert len(processor_without_cross_village.invalid_addresses) == 1
+            assert processor_without_cross_village.invalid_addresses[0]["name"] == "跨村里住戶"
+            assert processor_without_cross_village.invalid_addresses[0]["reason"] == "非七股區地址"
+    
+    def test_standardize_cross_village_address(self, processor_with_cross_village):
+        """Test cross-village address standardization"""
+        test_cases = [
+            ("臺南市七股區塩埕里6鄰鹽埕237號之3", "塩埕里鹽埕237號之3"),
+            ("臺南市七股區樹林里5鄰樹林45號", "樹林里樹林45號"),
+            ("724臺南市七股區十份里9鄰85-4號", "724十份里85號之4"),
+        ]
+        
+        for input_addr, expected in test_cases:
+            result = processor_with_cross_village._standardize_cross_village_address(input_addr)
+            assert result == expected, f"Failed for {input_addr}: got {result}, expected {expected}"
+    
+    def test_extract_village_name(self, processor_with_cross_village):
+        """Test village name extraction from full address"""
+        test_cases = [
+            ("臺南市七股區塩埕里6鄰鹽埕237號之3", "塩埕里"),
+            ("臺南市七股區樹林里5鄰樹林45號", "樹林里"),
+            ("724臺南市七股區十份里9鄰85-4號", "十份里"),
+            ("臺南市七股區七股里13鄰七股123號", "七股里"),
+            ("無效地址格式", "七股里"),  # Should return default village
+        ]
+        
+        for input_addr, expected in test_cases:
+            result = processor_with_cross_village._extract_village_name(input_addr)
+            assert result == expected, f"Failed for {input_addr}: got {result}, expected {expected}"
+    
+    def test_query_address_coordinates_with_target_village(self, processor_with_cross_village):
+        """Test coordinate query with target village parameter"""
+        # Mock successful response for cross-village query
+        mock_data = [{"x_coord": 120.123456, "y_coord": 23.654321}]
+        mock_response = Mock()
+        mock_response.data = mock_data
+        processor_with_cross_village.supabase.table.return_value.select.return_value.eq.return_value.eq.return_value.eq.return_value.execute.return_value = mock_response
+        
+        result = processor_with_cross_village.query_address_coordinates("鹽埕237號之3", "塩埕里")
+        
+        assert result == (120.123456, 23.654321)
+        
+        # Verify the query method was called
+        processor_with_cross_village.supabase.table.assert_called_with("addresses")
+        processor_with_cross_village.supabase.table.return_value.select.assert_called_with("x_coord, y_coord")
+    
+    def test_process_data_with_cross_village_enabled(self, processor_with_cross_village):
+        """Test complete data processing workflow with cross-village enabled"""
+        # Mock cross-village data
+        processor_with_cross_village.cross_village_data = [
+            {
+                "serial_number": "2",
+                "name": "跨村里住戶",
+                "original_address": "臺南市七股區塩埕里6鄰鹽埕237號之3",
+                "standardized_address": "塩埕里鹽埕237號之3",
+                "neighborhood": 6,
+                "sheet_name": "七股里"
+            }
+        ]
+        
+        # Mock main village data
+        main_data = [
+            {
+                "serial_number": "1",
+                "name": "本里住戶",
+                "original_address": "臺南市七股區七股里13鄰七股123號",
+                "neighborhood": 13
+            }
+        ]
+        
+        def mock_query_coordinates(address, target_village=None):
+            if address == "七股123號" and (target_village is None or target_village == "七股里"):
+                return (120.130496, 23.135225)
+            elif address == "塩埕里鹽埕237號之3" and target_village == "塩埕里":
+                return (120.123456, 23.654321)
+            return None
+        
+        with patch.object(processor_with_cross_village, 'read_excel_data', return_value=main_data), \
+             patch.object(processor_with_cross_village, 'query_address_coordinates', side_effect=mock_query_coordinates), \
+             patch('survey_grouping.processors.village_processor.standardize_village_address', side_effect=lambda x, y: "七股123號"):
+            
+            processed_data, unmatched, cross_village = processor_with_cross_village.process_data("dummy_path.xlsx")
+            
+            # Should have 1 main village address
+            assert len(processed_data) == 1
+            assert processed_data[0]["name"] == "本里住戶"
+            assert processed_data[0]["longitude"] == 120.130496
+            
+            # Should have 1 cross-village address
+            assert len(cross_village) == 1
+            assert cross_village[0]["name"] == "跨村里住戶"
+            assert cross_village[0]["village"] == "塩埕里"
+            assert cross_village[0]["longitude"] == 120.123456
+            assert cross_village[0]["latitude"] == 23.654321
+            
+            # No unmatched addresses in this test
+            assert len(unmatched) == 0
+    
+    def test_export_cross_village_addresses(self, processor_with_cross_village):
+        """Test cross-village addresses export functionality"""
+        cross_village_data = [
+            {
+                "serial_number": "2",
+                "name": "跨村里住戶1",
+                "full_address": "塩埕里鹽埕237號之3",
+                "district": "七股區",
+                "village": "塩埕里",
+                "neighborhood": 6,
+                "longitude": 120.123456,
+                "latitude": 23.654321,
+            },
+            {
+                "serial_number": "3",
+                "name": "跨村里住戶2",
+                "full_address": "樹林里樹林45號",
+                "district": "七股區",
+                "village": "樹林里",
+                "neighborhood": 5,
+                "longitude": None,
+                "latitude": None,
+            }
+        ]
+        
+        with tempfile.NamedTemporaryFile(mode='w', suffix='.csv', delete=False) as tmp_file:
+            tmp_path = tmp_file.name
+        
+        try:
+            processor_with_cross_village.export_cross_village_addresses(cross_village_data, tmp_path)
+            
+            # Verify file was created
+            assert os.path.exists(tmp_path)
+            
+            # Read and verify content
+            df = pd.read_csv(tmp_path, encoding='utf-8-sig')
+            assert len(df) == 2
+            assert list(df.columns) == ["序號", "姓名", "完整地址", "區域", "村里", "鄰別", "經度", "緯度"]
+            
+            # Check first row (with coordinates)
+            assert df.iloc[0]["序號"] == 2
+            assert df.iloc[0]["姓名"] == "跨村里住戶1"
+            assert df.iloc[0]["村里"] == "塩埕里"
+            assert df.iloc[0]["經度"] == 120.123456
+            
+            # Check second row (without coordinates)
+            assert df.iloc[1]["序號"] == 3
+            assert df.iloc[1]["姓名"] == "跨村里住戶2"
+            assert df.iloc[1]["村里"] == "樹林里"
+            assert pd.isna(df.iloc[1]["經度"])
+            
+        finally:
+            if os.path.exists(tmp_path):
+                os.unlink(tmp_path)
+    
+    def test_export_cross_village_addresses_empty(self, processor_with_cross_village):
+        """Test cross-village addresses export with empty data"""
+        with tempfile.NamedTemporaryFile(mode='w', suffix='.csv', delete=False) as tmp_file:
+            tmp_path = tmp_file.name
+        
+        try:
+            processor_with_cross_village.export_cross_village_addresses([], tmp_path)
+            
+            # Should not create file for empty data
+            # (based on the implementation that skips export when no cross-village addresses)
+            
+        finally:
+            if os.path.exists(tmp_path):
+                os.unlink(tmp_path)
+    
+    def test_roster_format_with_variable_columns(self, processor_with_cross_village):
+        """Test roster format handling with different column counts"""
+        # Test with 6 columns (like 十份里 data)
+        roster_data_6_cols = pd.DataFrame([
+            ["臺南市七股區十份里 名冊", None, None, None, None, None],
+            ["編號", "鄉鎮市區村里", "姓名", "通訊地址", "額外欄1", "額外欄2"],
+            [None, None, None, None, None, None],
+            [1, "臺南市七股區十份里", "測試住戶", "臺南市七股區十份里17鄰十份36號之28", "extra1", "extra2"],
+        ])
+        
+        with patch('pandas.ExcelFile') as mock_excel_file, \
+             patch('pandas.read_excel') as mock_read_excel:
+            
+            mock_excel_file.return_value.sheet_names = ["十份里"]
+            mock_read_excel.return_value = roster_data_6_cols
+            
+            # Should handle 6 columns by using only first 4
+            data = processor_with_cross_village.read_excel_data("dummy_path.xlsx")
+            
+            # Should still extract data correctly
+            assert len(data) == 0  # No valid data for 七股里 processor looking at 十份里 data
+            assert hasattr(processor_with_cross_village, 'cross_village_data')
+            assert len(processor_with_cross_village.cross_village_data) == 1
+            assert processor_with_cross_village.cross_village_data[0]["name"] == "測試住戶"
+    
+    def test_comprehensive_cross_village_workflow(self, processor_with_cross_village):
+        """Test complete cross-village workflow with real data patterns"""
+        # Mock comprehensive roster data (similar to real 七股里 data)
+        roster_data = pd.DataFrame([
+            ["臺南市七股區七股里 名冊", None, None, None],
+            ["編號", "鄉鎮市區村里", "姓名", "通訊地址"],
+            [None, None, None, None],
+            [26, "臺南市七股區七股里", "曾榮裕", "臺南市七股區七股里2鄰七股22號之4"],
+            [30, "臺南市七股區七股里", "黃文騫", "臺南市七股區塩埕里6鄰鹽埕237號之3"],  # Cross-village
+            [33, "臺南市七股區七股里", "黃明通", "臺南市七股區七股里7鄰5-2號"],  # Incomplete address
+            [34, "臺南市七股區七股里", "吳國民", "臺南市七股區七股116號之19"],  # Incomplete address
+        ])
+        
+        def mock_query_coordinates(address, target_village=None):
+            """Mock coordinate query with realistic responses"""
+            if address == "七股22號之4" and (target_village is None or target_village == "七股里"):
+                return (120.130981, 23.132992)
+            elif address == "塩埕里鹽埕237號之3" and target_village == "塩埕里":
+                return (120.123456, 23.654321)
+            elif address == "5號之2":  # Incomplete address
+                return None
+            elif address == "七股116號之19":  # Incomplete address  
+                return None
+            return None
+        
+        with patch('pandas.ExcelFile') as mock_excel_file, \
+             patch('pandas.read_excel') as mock_read_excel, \
+             patch.object(processor_with_cross_village, 'query_address_coordinates', side_effect=mock_query_coordinates):
+            
+            mock_excel_file.return_value.sheet_names = ["七股里"]
+            mock_read_excel.return_value = roster_data
+            
+            # Process the data
+            processed_data, unmatched, cross_village = processor_with_cross_village.process_data("dummy_path.xlsx")
+            
+            # Verify main village results
+            assert len(processed_data) == 2  # 1 valid + 1 unmatched main village addresses
+            matched_main = [item for item in processed_data if item["longitude"] is not None]
+            unmatched_main = [item for item in processed_data if item["longitude"] is None]
+            assert len(matched_main) == 1
+            assert len(unmatched_main) == 1
+            assert matched_main[0]["name"] == "曾榮裕"
+            assert unmatched_main[0]["name"] == "黃明通"
+            
+            # Verify cross-village results (should include both 黃文騫 and 吳國民)
+            assert len(cross_village) == 2
+            cross_village_names = [item["name"] for item in cross_village]
+            assert "黃文騫" in cross_village_names
+            assert "吳國民" in cross_village_names
+            
+            # Find the specific cross-village items
+            huang_item = next(item for item in cross_village if item["name"] == "黃文騫")
+            wu_item = next(item for item in cross_village if item["name"] == "吳國民")
+            
+            assert huang_item["village"] == "塩埕里"
+            assert huang_item["longitude"] == 120.123456
+            assert wu_item["longitude"] is None  # Should not match coordinates
+            
+            # Verify unmatched list
+            assert len(unmatched) == 1
+            assert unmatched[0]["name"] == "黃明通"
+            
+            # Verify invalid addresses (should be empty as both cross-district addresses are now cross-village)
+            assert not hasattr(processor_with_cross_village, 'invalid_addresses') or len(processor_with_cross_village.invalid_addresses) == 0

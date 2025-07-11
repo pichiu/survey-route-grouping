@@ -287,6 +287,7 @@ uv run python src/survey_grouping/processors/village_processor.py --district 七
 - ✅ **全形轉半形**：支援全形數字轉換（１２３ → 123）
 - ✅ **精確匹配**：禁用模糊匹配避免錯誤配對
 - ✅ **跨區域過濾**：自動識別並分離跨區域地址
+- ✅ **跨村里處理**：可選支援同區其他村里地址的座標匹配 🆕
 - ✅ **未匹配報告**：生成詳細的未匹配地址清單
 
 **使用範例**：
@@ -307,12 +308,54 @@ uv run python src/survey_grouping/processors/village_processor.py \
   --district 七股區 --village 頂山里 \
   --excel-path data/頂山里200戶.xlsx \
   --remove-duplicates
+
+# 🆕 包含跨村里地址處理（同區其他村里地址也會匹配座標）
+uv run python src/survey_grouping/processors/village_processor.py \
+  --district 七股區 --village 七股里 \
+  --excel-path data/七股里.xlsx \
+  --include-cross-village
 ```
 
 **輸出檔案**：
-- `{區域}{村里}分組結果.csv`：主要結果檔案
+- `{區域}{村里}分組結果.csv`：主要結果檔案（目標村里地址）
 - `{區域}{村里}分組結果_未匹配地址.csv`：未匹配地址報告
 - `{區域}{村里}分組結果_無效地址.csv`：跨區域地址報告（名冊格式）
+- `{區域}{村里}分組結果_跨村里地址.csv`：跨村里地址報告（使用 --include-cross-village 時）🆕
+
+#### 跨村里地址處理功能 🆕
+
+VillageProcessor 支援兩種處理模式：
+
+**📍 單村里模式（預設）**：
+- 只處理目標村里的地址
+- 同區其他村里地址會被歸類為「無效地址」
+- 適合嚴格的村里範圍普查
+
+**🌐 包含跨村里模式（`--include-cross-village`）**：
+- 處理目標村里地址 + 同區其他村里地址
+- 跨村里地址會匹配對應村里的座標資料
+- 生成獨立的跨村里地址報告
+- 適合需要處理混合地址的場景
+
+**實際應用場景**：
+```bash
+# 場景1：七股里名冊包含塩埕里地址
+# 單村里模式：塩埕里地址 → 無效地址報告
+uv run python src/survey_grouping/processors/village_processor.py \
+  --district 七股區 --village 七股里 \
+  --excel-path data/七股里.xlsx
+
+# 跨村里模式：塩埕里地址 → 跨村里地址報告（含座標）
+uv run python src/survey_grouping/processors/village_processor.py \
+  --district 七股區 --village 七股里 \
+  --excel-path data/七股里.xlsx \
+  --include-cross-village
+```
+
+**處理邏輯差異**：
+- **同區同村里**：`臺南市七股區七股里13鄰七股123號` → 主要結果檔案
+- **同區跨村里**：`臺南市七股區塩埕里6鄰鹽埕237號` → 跨村里報告（有 --include-cross-village）或無效地址報告（預設）
+- **跨區地址**：`臺南市安南區七股116號` → 無效地址報告（兩種模式皆同）
 
 ## 💻 程式化使用
 
