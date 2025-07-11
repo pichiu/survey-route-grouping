@@ -9,6 +9,43 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+#### 🛠️ RouteProcessor 路線分組處理器 🆕
+- **新增 RouteProcessor 類別** (`src/survey_grouping/processors/route_processor.py`)：
+  - 專門處理路線分組 Excel 檔案的資料處理器
+  - 支援多工作表路線分組格式，每個工作表代表一條路線
+  - 動態路線命名：自動生成如 篤加01、西寮02 等路線名稱
+  - 跨村里地址檢測：智慧識別並過濾不同村里的地址
+  - 混合地址格式支援：同時處理完整地址和簡單地址
+  - 資料庫鄰別查詢：自動查詢缺少鄰別資訊的地址
+  - 字符一致性處理：處理塩埕/鹽埕等字符變異問題
+  - 全面地址保留：包含所有有效地址（即使無座標匹配）
+
+#### 🔧 RouteProcessor 核心功能詳細
+- **Excel 格式支援**：
+  - 第一個工作表「核定名冊」自動跳過
+  - 其他工作表代表路線（如：篤加1、篤加2、西寮1、西寮2）
+  - 支援動態欄位數量（4欄或6欄格式）
+- **地址處理邏輯**：
+  - `_is_target_village_address()`：目標村里完整地址檢測
+  - `_is_simple_village_address()`：簡單村里地址檢測（含跨村里衝突處理）
+  - `_is_different_village_address()`：不同村里地址檢測
+  - `_process_target_village_address()`：目標村里地址處理
+  - `_process_simple_village_address()`：簡單村里地址處理
+- **關鍵修復**：
+  - 修復七股里/七股區同名前綴導致的地址誤判問題
+  - 改進正則表達式：使用 `[\u4e00-\u9fff]+里` 匹配中文村里名稱
+  - 解決 `臺南市七股區塩埕里6鄰鹽埕237號之3` 被誤認為七股里地址的問題
+- **輸出檔案**：
+  - `{區域}{村里}動線處理結果.csv`：所有有效地址（含座標和未匹配）
+  - `{區域}{村里}動線處理結果_未匹配地址.csv`：未找到座標的地址
+  - `{區域}{村里}動線處理結果_無效地址.csv`：跨村里或無效地址
+
+#### 🧪 RouteProcessor 實際應用成果
+- **成功處理8個村里**：中寮里、玉成里、永吉里、後港里、竹橋里、十份里、七股里、塩埕里
+- **整體匹配率**：93.7% (313/334 筆地址)
+- **跨村里地址檢測**：成功識別並過濾2筆跨村里地址
+- **字符一致性處理**：正確處理塩埕里（塩）與鹽埕里（鹽）的字符差異
+
 #### 🛠️ VillageProcessor 資料處理器
 - **新增 VillageProcessor 類別** (`src/survey_grouping/processors/village_processor.py`)：
   - 通用村里數據處理器，支援 Excel 數據轉換為 CSV 格式並匹配座標

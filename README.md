@@ -145,6 +145,11 @@ survey_route_grouping/
 │       │   ├── clustering.py       # 空間聚類演算法
 │       │   ├── route_optimizer.py  # 路線優化
 │       │   └── grouping_engine.py  # 主要分組引擎
+│       ├── processors/             # 🆕 資料處理器
+│       │   ├── __init__.py
+│       │   ├── village_processor.py   # 村里 Excel 處理器
+│       │   ├── route_processor.py     # 路線分組 Excel 處理器
+│       │   └── dingshan_processor.py  # 頂山里專用處理器
 │       ├── utils/
 │       │   ├── __init__.py
 │       │   ├── geo_utils.py        # 地理計算工具（PostGIS）
@@ -316,11 +321,48 @@ uv run python src/survey_grouping/processors/village_processor.py \
   --include-cross-village
 ```
 
+#### RouteProcessor 路線分組處理 🆕
+支援處理路線分組的 Excel 檔案，每個工作表代表一條路線：
+
+**支援的 Excel 格式**：
+- 第一個工作表「核定名冊」會自動跳過
+- 其他工作表代表路線（如：篤加1、篤加2、西寮1、西寮2）
+- 動態路線命名：篤加01、篤加02、西寮01、西寮02
+
+**核心功能**：
+- ✅ **跨村里地址檢測**：自動識別並過濾不同村里的地址
+- ✅ **混合地址格式**：支援完整地址和簡單地址混合處理
+- ✅ **資料庫鄰別查詢**：自動查詢缺少鄰別資訊的地址
+- ✅ **字符一致性處理**：支援塩埕/鹽埕等字符變異
+- ✅ **地址標準化**：dash-to-zhi 轉換和格式標準化
+- ✅ **未匹配地址保留**：包含所有有效地址（即使無座標）
+
+**使用範例**：
+```python
+# 處理路線分組 Excel 檔案
+from src.survey_grouping.processors.route_processor import RouteProcessor
+
+async def process_route_data():
+    processor = RouteProcessor(district="七股區", village="篤加里")
+    await processor.process_route_data(
+        excel_path="data/篤加里(17) OK.xlsx",
+        output_dir="output"
+    )
+
+# 或使用命令行腳本
+python test_route_processor.py
+```
+
 **輸出檔案**：
-- `{區域}{村里}分組結果.csv`：主要結果檔案（目標村里地址）
-- `{區域}{村里}分組結果_未匹配地址.csv`：未匹配地址報告
-- `{區域}{村里}分組結果_無效地址.csv`：跨區域地址報告（名冊格式）
-- `{區域}{村里}分組結果_跨村里地址.csv`：跨村里地址報告（使用 --include-cross-village 時）🆕
+- `{區域}{村里}動線處理結果.csv`：所有有效地址（含座標和未匹配）
+- `{區域}{村里}動線處理結果_未匹配地址.csv`：未找到座標的地址
+- `{區域}{村里}動線處理結果_無效地址.csv`：跨村里或無效地址
+
+#### VillageProcessor 輸出檔案
+- `{區域}{村里}地址處理結果.csv`：主要結果檔案（目標村里地址）
+- `{區域}{村里}地址處理結果_未匹配地址.csv`：未匹配地址報告
+- `{區域}{村里}地址處理結果_無效地址.csv`：跨區域地址報告（名冊格式）
+- `{區域}{村里}地址處理結果_跨村里地址.csv`：跨村里地址報告（使用 --include-cross-village 時）🆕
 
 #### 跨村里地址處理功能 🆕
 
@@ -418,13 +460,24 @@ center = await queries.get_village_center("新營區", "三仙里")
 - **批量查詢**：支援鄰別範圍內的地址查詢
 - **座標驗證**：即時檢查座標資料的準確性
 
-### 4. VillageProcessor 資料處理器 🆕
+### 4. 資料處理器 🆕
+
+#### VillageProcessor 村里處理器
 - **多格式支援**：自動偵測並支援多工作表、單工作表、名冊格式 Excel 檔案
 - **地址標準化**：智慧轉換地址格式（如 74-1號 → 74號之1）
 - **精確匹配**：禁用模糊匹配避免錯誤配對，提供更準確的座標匹配
 - **跨區域過濾**：自動識別並過濾跨區域地址，生成無效地址報告
 - **全形數字轉換**：支援全形數字自動轉半形（１２３ → 123）
 - **未匹配報告**：生成詳細的未匹配地址報告供手動處理
+
+#### RouteProcessor 路線處理器 🆕
+- **路線分組處理**：支援多工作表路線分組 Excel 檔案
+- **動態路線命名**：自動生成路線名稱（如：篤加01、西寮02）
+- **跨村里地址檢測**：智慧識別並過濾不同村里的地址
+- **混合地址格式**：同時支援完整地址和簡單地址格式
+- **資料庫鄰別查詢**：自動查詢缺少鄰別資訊的地址
+- **字符一致性處理**：處理塩埕/鹽埕等字符變異問題
+- **全面地址保留**：包含所有有效地址（即使無座標匹配）
 
 ### 5. 效能優化
 - **統計快取**：address_stats 表提供快速統計
