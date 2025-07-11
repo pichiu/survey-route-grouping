@@ -69,15 +69,17 @@ def extract_neighborhood_from_address(address: str) -> Optional[int]:
 class VillageProcessor:
     """通用村里數據處理器"""
 
-    def __init__(self, district: str, village: str):
+    def __init__(self, district: str, village: str, include_cross_village: bool = False):
         """初始化處理器
         
         Args:
             district: 區域名稱（如"七股區"）
             village: 村里名稱（如"頂山里"）
+            include_cross_village: 是否包含同區其他村里的地址處理
         """
         self.district = district
         self.village = village
+        self.include_cross_village = include_cross_village
         self.supabase = get_supabase_client()
 
     def read_excel_data(
@@ -267,6 +269,7 @@ class VillageProcessor:
             處理後的數據列表
         """
         all_data = []
+        cross_village_data = []  # 記錄跨村里地址
         invalid_addresses = []  # 記錄無效地址
         
         try:
@@ -283,7 +286,14 @@ class VillageProcessor:
             
             # 從資料起始行開始讀取
             data_df = df.iloc[data_start_row:].copy()
-            data_df.columns = ['編號', '鄉鎮市區村里', '姓名', '通訊地址']
+            
+            # 靈活處理不同數量的欄位，只使用前4個有用的欄位
+            if data_df.shape[1] >= 4:
+                # 只保留前4個欄位
+                data_df = data_df.iloc[:, :4].copy()
+                data_df.columns = ['編號', '鄉鎮市區村里', '姓名', '通訊地址']
+            else:
+                raise ValueError(f"名冊格式至少需要4個欄位，但只找到 {data_df.shape[1]} 個欄位")
             
             # 移除空行
             data_df = data_df.dropna(subset=['編號']).reset_index(drop=True)
@@ -302,7 +312,7 @@ class VillageProcessor:
                     
                     # 檢查地址是否為目標區域和村里
                     if f"{self.district}" in address and f"{self.village}" in address:
-                        # 提取鄰別資訊
+                        # 主要村里地址處理
                         neighborhood = extract_neighborhood_from_address(address)
                         
                         if neighborhood is None:
@@ -330,6 +340,36 @@ class VillageProcessor:
                                 "raw_address": raw_address,
                                 "reason": "地址格式無效"
                             })
+                    elif self.include_cross_village and f"{self.district}" in address:
+                        # 同區其他村里地址處理
+                        logger.info(f"跨村里地址: {address}")
+                        neighborhood = extract_neighborhood_from_address(address)
+                        
+                        if neighborhood is None:
+                            logger.warning(f"跨村里地址無法提取鄰別資訊: {address}")
+                            neighborhood = 0
+                        
+                        # 標準化地址格式
+                        standardized_addr = self._standardize_cross_village_address(address)
+                        
+                        # 驗證地址格式
+                        if validate_address_format(standardized_addr):
+                            cross_village_data.append({
+                                "neighborhood": neighborhood,
+                                "name": name,
+                                "serial_number": serial_number,
+                                "original_address": raw_address,
+                                "standardized_address": standardized_addr,
+                                "sheet_name": sheet_name,
+                            })
+                        else:
+                            logger.warning("跳過無效跨村里地址格式: %s", standardized_addr)
+                            invalid_addresses.append({
+                                "serial_number": serial_number,
+                                "name": name,
+                                "raw_address": raw_address,
+                                "reason": "跨村里地址格式無效"
+                            })
                     else:
                         # 跨區或跨里地址
                         logger.warning(f"跨區域地址: {address}")
@@ -337,10 +377,14 @@ class VillageProcessor:
                             "serial_number": serial_number,
                             "name": name,
                             "raw_address": raw_address,
-                            "reason": f"非{self.district}{self.village}地址"
+                            "reason": f"非{self.district}地址"
                         })
             
             logger.info("成功讀取 %d 筆有效地址數據", len(all_data))
+            if cross_village_data:
+                logger.info("發現 %d 筆跨村里地址", len(cross_village_data))
+                # 將跨村里地址存為實例變數，供後續導出
+                self.cross_village_data = cross_village_data
             if invalid_addresses:
                 logger.warning("發現 %d 筆無效或跨區域地址", len(invalid_addresses))
                 # 將無效地址存為實例變數，供後續導出
@@ -388,6 +432,62 @@ class VillageProcessor:
         
         return address
 
+    def _standardize_cross_village_address(self, full_address: str) -> str:
+        """標準化跨村里地址格式
+        
+        將跨村里地址轉換為標準格式，保留村里資訊用於座標查詢
+        例如：將 "臺南市七股區塩埕里6鄰鹽埕237號之3" 轉換為 "鹽埕237號之3"
+        
+        Args:
+            full_address: 完整地址
+            
+        Returns:
+            標準化後的地址
+        """
+        address = full_address
+        
+        # 移除前綴部分
+        prefixes_to_remove = [
+            "臺南市", "台南市",
+            f"{self.district}",
+        ]
+        
+        for prefix in prefixes_to_remove:
+            address = address.replace(prefix, "")
+        
+        # 移除鄰別資訊 (如 "6鄰")
+        address = re.sub(r'\d+鄰', '', address)
+        
+        # 清理多餘的空白和標點
+        address = address.strip()
+        
+        # 使用既有的標準化邏輯進行進一步轉換
+        address = standardize_village_address(address, "", 
+                                            remove_village_suffix=False,
+                                            convert_dash_to_zhi=True)
+        
+        return address
+
+    def _extract_village_name(self, full_address: str) -> str:
+        """從完整地址中提取村里名稱
+        
+        Args:
+            full_address: 完整地址，如"臺南市七股區塩埕里6鄰鹽埕237號之3"
+            
+        Returns:
+            村里名稱，如"塩埕里"
+        """
+        # 尋找村里名稱模式
+        import re
+        
+        # 匹配村里名稱（漢字 + 里/村）
+        match = re.search(r'([^市區]*[里村])', full_address)
+        if match:
+            return match.group(1)
+        
+        # 如果找不到，返回預設村里
+        return self.village
+
     def export_invalid_addresses(self, output_path: str):
         """導出無效或跨區域地址報告
         
@@ -413,24 +513,62 @@ class VillageProcessor:
         logger.info("無效地址報告已導出至: %s", output_path)
         logger.info("無效地址數: %d 筆", len(df))
 
+    def export_cross_village_addresses(self, cross_village_data: List[Dict], output_path: str):
+        """導出跨村里地址報告
+        
+        Args:
+            cross_village_data: 跨村里地址列表
+            output_path: 輸出路徑
+        """
+        if not cross_village_data:
+            logger.info("沒有跨村里地址需要導出")
+            return
+            
+        df = pd.DataFrame(cross_village_data)
+        
+        # 重新排序欄位
+        columns = [
+            "serial_number",
+            "name",
+            "full_address",
+            "district",
+            "village",
+            "neighborhood",
+            "longitude",
+            "latitude",
+        ]
+        df = df[columns]
+        df.columns = ["序號", "姓名", "完整地址", "區域", "村里", "鄰別", "經度", "緯度"]
+        
+        # 按村里和鄰別排序
+        df = df.sort_values(["村里", "鄰別", "序號"])
+        
+        df.to_csv(output_path, index=False, encoding="utf-8-sig")
+        logger.info("跨村里地址報告已導出至: %s", output_path)
+        logger.info("跨村里地址數: %d 筆", len(df))
+
     def query_address_coordinates(
-        self, standardized_address: str
+        self, standardized_address: str, target_village: str = None
     ) -> Optional[Tuple[float, float]]:
         """查詢地址的經緯度（僅精確匹配）
         
         Args:
             standardized_address: 標準化後的地址
+            target_village: 目標村里名稱，如果為None則使用預設村里
             
         Returns:
             經緯度座標元組，如果未找到則返回None
         """
         try:
+            # 使用指定的村里或預設村里
+            village = target_village if target_village else self.village
+            
             # 僅進行精確匹配，不使用模糊匹配避免錯誤配對
             response = (
                 self.supabase.table("addresses")
                 .select("x_coord, y_coord")
                 .eq("district", self.district)
-                .eq("village", self.village)
+                .eq("village", village)
                 .eq("full_address", standardized_address)
                 .execute()
             )
@@ -450,7 +588,7 @@ class VillageProcessor:
         self, 
         excel_path: str, 
         neighborhood_mapping: Optional[Dict[str, int]] = None
-    ) -> Tuple[List[Dict], List[Dict]]:
+    ) -> Tuple[List[Dict], List[Dict], List[Dict]]:
         """處理完整的數據流程
         
         Args:
@@ -458,7 +596,7 @@ class VillageProcessor:
             neighborhood_mapping: 鄰別對應表，如果為None則使用預設
             
         Returns:
-            (處理成功的數據, 未匹配的地址)
+            (處理成功的數據, 未匹配的地址, 跨村里地址)
         """
         if neighborhood_mapping is None:
             neighborhood_mapping = get_neighborhood_mapping("standard")
@@ -468,6 +606,7 @@ class VillageProcessor:
 
         processed_data = []
         unmatched_addresses = []
+        cross_village_processed = []
 
         for item in raw_data:
             # 標準化地址
@@ -509,11 +648,38 @@ class VillageProcessor:
                     },
                 )
 
+        # 處理跨村里地址（如果有的話）
+        if hasattr(self, 'cross_village_data') and self.cross_village_data:
+            for item in self.cross_village_data:
+                # 從原始地址中提取村里名稱
+                village_name = self._extract_village_name(item["original_address"])
+                
+                # 查詢跨村里地址的經緯度
+                coordinates = self.query_address_coordinates(
+                    item["standardized_address"], village_name
+                )
+
+                cross_village_processed.append(
+                    {
+                        "serial_number": item["serial_number"],
+                        "name": item["name"],
+                        "full_address": item["standardized_address"],
+                        "district": self.district,
+                        "village": village_name,
+                        "neighborhood": item["neighborhood"],
+                        "longitude": coordinates[0] if coordinates else None,
+                        "latitude": coordinates[1] if coordinates else None,
+                    },
+                )
+
         # 記錄處理結果
         total_addresses = len(processed_data)
         matched_count = total_addresses - len(unmatched_addresses)
         logger.info("成功處理 %d 筆地址（匹配: %d, 未匹配: %d）", 
                    total_addresses, matched_count, len(unmatched_addresses))
+        
+        if cross_village_processed:
+            logger.info("成功處理 %d 筆跨村里地址", len(cross_village_processed))
         
         if unmatched_addresses:
             logger.warning("未匹配到 %d 筆地址:", len(unmatched_addresses))
@@ -525,7 +691,7 @@ class VillageProcessor:
                     addr["standardized_address"]
                 )
 
-        return processed_data, unmatched_addresses
+        return processed_data, unmatched_addresses, cross_village_processed
 
     def export_to_csv(
         self,
@@ -635,6 +801,11 @@ def main():
         choices=["standard", "numeric"],
         help="村里類型（影響鄰別對應表）"
     )
+    parser.add_argument(
+        "--include-cross-village",
+        action="store_true",
+        help="包含同區其他村里的地址處理並匹配座標"
+    )
 
     args = parser.parse_args()
 
@@ -645,11 +816,11 @@ def main():
     )
 
     # 創建處理器
-    processor = VillageProcessor(args.district, args.village)
+    processor = VillageProcessor(args.district, args.village, args.include_cross_village)
 
     # 處理數據
     neighborhood_mapping = get_neighborhood_mapping(args.village_type)
-    processed_data, unmatched = processor.process_data(
+    processed_data, unmatched, cross_village = processor.process_data(
         args.excel_path, neighborhood_mapping
     )
 
@@ -669,6 +840,16 @@ def main():
         unmatched_report_path = args.output_path.replace(".csv", "_未匹配地址.csv")
         processor.export_unmatched_report(unmatched, unmatched_report_path)
 
+    # 導出跨村里地址報告
+    if cross_village:
+        cross_village_path = args.output_path.replace(".csv", "_跨村里地址.csv")
+        processor.export_cross_village_addresses(cross_village, cross_village_path)
+
+    # 導出無效地址報告（如果有的話）
+    if hasattr(processor, 'invalid_addresses') and processor.invalid_addresses:
+        invalid_addresses_path = args.output_path.replace(".csv", "_無效地址.csv")
+        processor.export_invalid_addresses(invalid_addresses_path)
+
     # 輸出統計資訊
     logger.info("處理完成!")
     total_count = len(processed_data)
@@ -676,9 +857,17 @@ def main():
     logger.info("總地址數: %d 筆", total_count)
     logger.info("匹配成功: %d 筆 (%.1f%%)", matched_count, matched_count/total_count*100 if total_count > 0 else 0)
     logger.info("未匹配: %d 筆 (%.1f%%)", len(unmatched), len(unmatched)/total_count*100 if total_count > 0 else 0)
+    if cross_village:
+        logger.info("跨村里地址: %d 筆", len(cross_village))
+    if hasattr(processor, 'invalid_addresses') and processor.invalid_addresses:
+        logger.info("無效地址: %d 筆", len(processor.invalid_addresses))
 
     if unmatched:
         logger.info("未匹配地址報告已生成: %s", unmatched_report_path)
+    if cross_village:
+        logger.info("跨村里地址報告已生成: %s", cross_village_path)
+    if hasattr(processor, 'invalid_addresses') and processor.invalid_addresses:
+        logger.info("無效地址報告已生成: %s", invalid_addresses_path)
 
 
 if __name__ == "__main__":

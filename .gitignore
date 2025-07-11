@@ -225,3 +225,6 @@ maps/
 test_maps/
 exports/
 results/
+
+# 測試和開發資料
+data/
