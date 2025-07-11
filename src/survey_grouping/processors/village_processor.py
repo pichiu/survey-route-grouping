@@ -46,14 +46,15 @@ def convert_fullwidth_to_halfwidth(text: str) -> str:
     return result
 
 
-def extract_neighborhood_from_address(address: str) -> Optional[int]:
+def extract_neighborhood_from_address(address: str, allow_database_lookup: bool = False) -> Optional[int]:
     """從完整地址中提取鄰別編號
     
     Args:
         address: 完整地址，如"臺南市七股區七股里13鄰七股123-12號"
+        allow_database_lookup: 是否允許在找不到鄰別時標記為需要資料庫查詢
         
     Returns:
-        鄰別編號，如果找不到則返回None
+        鄰別編號，如果找不到則返回None，如果allow_database_lookup=True則返回-1表示需要查詢
     """
     if not address:
         return None
@@ -62,6 +63,10 @@ def extract_neighborhood_from_address(address: str) -> Optional[int]:
     match = re.search(r'(\d+)鄰', address)
     if match:
         return int(match.group(1))
+    
+    # 如果允許資料庫查詢且沒有鄰別資訊，返回特殊值
+    if allow_database_lookup:
+        return -1  # 特殊標記，表示需要資料庫查詢
     
     return None
 
@@ -120,6 +125,15 @@ class VillageProcessor:
                 (len(first_sheet_df) > 1 and '通訊地址' in str(first_sheet_df.iloc[1].values))):
                 logger.info("檢測到名冊格式，使用名冊處理方式")
                 return self._read_roster_format(excel_path, sheet_names[0])
+            
+            # 判斷是否為簡單列表格式（檢查第一行是否包含 '慰問地點' 或類似地址欄位）
+            if (len(first_sheet_df) > 0 and 
+                ('慰問地點' in str(first_sheet_df.iloc[0].values) or 
+                 '地址' in str(first_sheet_df.iloc[0].values) or
+                 '慰問地點' in first_sheet_df.columns or 
+                 '地址' in first_sheet_df.columns)):
+                logger.info("檢測到簡單列表格式（支援混合地址格式），使用混合格式處理方式")
+                return self._read_mixed_format(excel_path, sheet_names[0])
             
             # 多工作表格式，需要 neighborhood_mapping
             if neighborhood_mapping is None:
@@ -188,6 +202,283 @@ class VillageProcessor:
         except Exception:
             logger.exception("讀取Excel文件失敗")
             raise
+
+    def _read_mixed_format(self, excel_path: str, sheet_name: str) -> List[Dict]:
+        """讀取混合格式的 Excel 資料，智能處理簡單和完整地址
+        
+        期望格式：
+        Row 0: 標題行（編號, 里別, 名字, 慰問地點, 備註）
+        Row 1+: 實際資料
+        
+        支援混合地址格式：
+        - 簡單地址：如 "大埕137號"
+        - 完整地址：如 "臺南市七股區大埕里1鄰大埕137號"
+        
+        Args:
+            excel_path: Excel 文件路徑
+            sheet_name: 工作表名稱
+            
+        Returns:
+            處理後的數據列表
+        """
+        all_data = []
+        cross_village_data = []  # 記錄跨村里地址
+        invalid_addresses = []  # 記錄無效地址
+        
+        try:
+            df = pd.read_excel(excel_path, sheet_name=sheet_name)
+            
+            # 使用第一行作為標題
+            df.columns = df.iloc[0].values
+            df = df.iloc[1:].reset_index(drop=True)
+            
+            # 檢查是否有必要的欄位
+            if '編號' not in df.columns:
+                raise ValueError("混合格式必須包含 '編號' 欄位")
+            if '慰問地點' not in df.columns and '地址' not in df.columns:
+                raise ValueError("混合格式必須包含 '慰問地點' 或 '地址' 欄位")
+            
+            # 統一地址欄位名稱
+            if '慰問地點' in df.columns:
+                address_column = '慰問地點'
+            else:
+                address_column = '地址'
+            
+            # 移除空行
+            df = df.dropna(subset=['編號']).reset_index(drop=True)
+            
+            logger.info(f"混合格式：找到 {len(df)} 筆原始資料")
+            
+            # 處理每一行資料
+            for _, row in df.iterrows():
+                if pd.notna(row[address_column]) and str(row[address_column]).strip():
+                    name = str(row['名字']).strip() if pd.notna(row['名字']) and '名字' in df.columns else ""
+                    serial_number = str(row['編號']).strip() if pd.notna(row['編號']) else ""
+                    raw_address = str(row[address_column]).strip()
+                    
+                    # 轉換全形數字
+                    address = convert_fullwidth_to_halfwidth(raw_address)
+                    
+                    # 智能判斷並處理地址格式
+                    self._process_mixed_address(address, name, serial_number, raw_address, sheet_name,
+                                              all_data, cross_village_data, invalid_addresses)
+                        
+            logger.info(f"混合格式處理完成：主要村里 {len(all_data)} 筆，跨村里 {len(cross_village_data)} 筆，無效地址 {len(invalid_addresses)} 筆")
+            
+            # 合併所有資料
+            all_data.extend(cross_village_data)
+            
+            # 儲存無效地址報告
+            if invalid_addresses:
+                self._save_invalid_addresses(invalid_addresses)
+            
+            return all_data
+            
+        except Exception as e:
+            logger.error(f"讀取混合格式失敗: {e}")
+            raise
+    
+    def _process_mixed_address(self, address: str, name: str, serial_number: str, 
+                             raw_address: str, sheet_name: str,
+                             all_data: List[Dict], cross_village_data: List[Dict], 
+                             invalid_addresses: List[Dict]) -> None:
+        """智能處理混合格式地址
+        
+        Args:
+            address: 轉換全形數字後的地址
+            name: 姓名
+            serial_number: 編號
+            raw_address: 原始地址
+            sheet_name: 工作表名稱
+            all_data: 主要村里數據列表
+            cross_village_data: 跨村里數據列表
+            invalid_addresses: 無效地址列表
+        """
+        # 判斷是否為完整地址
+        is_complete_address = ("臺南市" in address or "台南市" in address) and self.district in address
+        
+        if is_complete_address:
+            # 完整地址處理 - 使用名冊格式的標準化方法
+            logger.debug(f"處理完整地址: {address}")
+            
+            # 檢查地址是否為目標區域和村里
+            if f"{self.district}" in address and f"{self.village}" in address:
+                # 主要村里地址處理
+                neighborhood = extract_neighborhood_from_address(address, allow_database_lookup=True)
+                
+                if neighborhood == -1:
+                    # 需要資料庫查詢鄰別資訊
+                    logger.info(f"完整地址缺少鄰別資訊，嘗試從資料庫查詢: {address}")
+                    standardized_addr = self._standardize_roster_address(address)
+                    neighborhood = self.query_neighborhood_by_address(standardized_addr)
+                    
+                    if neighborhood is None:
+                        logger.warning(f"無法從資料庫查詢鄰別資訊: {address}")
+                        neighborhood = 0
+                    else:
+                        logger.info(f"成功從資料庫查詢到鄰別: {neighborhood}")
+                elif neighborhood is None:
+                    logger.warning(f"無法提取鄰別資訊: {address}")
+                    neighborhood = 0
+                
+                # 標準化地址格式（使用名冊格式標準化）
+                standardized_addr = self._standardize_roster_address(address)
+                
+                # 驗證地址格式
+                if validate_address_format(standardized_addr):
+                    all_data.append({
+                        "neighborhood": neighborhood,
+                        "name": name,
+                        "serial_number": serial_number,
+                        "original_address": raw_address,
+                        "standardized_address": standardized_addr,
+                        "sheet_name": sheet_name,
+                    })
+                else:
+                    logger.warning("跳過無效地址格式: %s", standardized_addr)
+                    invalid_addresses.append({
+                        "serial_number": serial_number,
+                        "name": name,
+                        "raw_address": raw_address,
+                        "reason": "地址格式無效"
+                    })
+            elif self.include_cross_village and f"{self.district}" in address:
+                # 跨村里地址處理
+                logger.info(f"跨村里完整地址: {address}")
+                neighborhood = extract_neighborhood_from_address(address, allow_database_lookup=True)
+                
+                if neighborhood == -1:
+                    # 需要資料庫查詢鄰別資訊
+                    logger.info(f"跨村里完整地址缺少鄰別資訊，嘗試從資料庫查詢: {address}")
+                    standardized_addr = self._standardize_cross_village_address(address)
+                    # 提取村里名稱用於查詢
+                    village_name = self._extract_village_name(address)
+                    # 使用提取的村里名稱進行查詢
+                    neighborhood = self.query_neighborhood_by_address(standardized_addr, village_name)
+                    
+                    if neighborhood is None:
+                        logger.warning(f"無法從資料庫查詢跨村里地址鄰別資訊: {address}")
+                        neighborhood = 0
+                    else:
+                        logger.info(f"成功從資料庫查詢到跨村里地址鄰別: {neighborhood}")
+                elif neighborhood is None:
+                    logger.warning(f"跨村里地址無法提取鄰別資訊: {address}")
+                    neighborhood = 0
+                
+                # 標準化地址格式（使用跨村里標準化）
+                standardized_addr = self._standardize_cross_village_address(address)
+                
+                # 驗證地址格式
+                if validate_address_format(standardized_addr):
+                    cross_village_data.append({
+                        "neighborhood": neighborhood,
+                        "name": name,
+                        "serial_number": serial_number,
+                        "original_address": raw_address,
+                        "standardized_address": standardized_addr,
+                        "sheet_name": sheet_name,
+                    })
+                else:
+                    logger.warning("跳過無效跨村里地址格式: %s", standardized_addr)
+                    invalid_addresses.append({
+                        "serial_number": serial_number,
+                        "name": name,
+                        "raw_address": raw_address,
+                        "reason": "跨村里地址格式無效"
+                    })
+            else:
+                # 無效地址
+                logger.warning(f"無效地址（非目標區域或村里）: {address}")
+                invalid_addresses.append({
+                    "serial_number": serial_number,
+                    "name": name,
+                    "raw_address": raw_address,
+                    "reason": f"非{self.district}地址" if f"{self.district}" not in address else f"非{self.village}地址"
+                })
+        else:
+            # 簡單地址處理 - 使用原有的簡單地址標準化方法
+            logger.debug(f"處理簡單地址: {address}")
+            
+            # 構造完整地址用於檢查
+            full_address = f"臺南市{self.district}{self.village}{address}"
+            
+            # 檢查地址是否為目標區域和村里（簡單地址默認為目標村里）
+            neighborhood = extract_neighborhood_from_address(full_address, allow_database_lookup=True)
+            
+            if neighborhood == -1:
+                # 需要資料庫查詢鄰別資訊
+                logger.info(f"簡單地址缺少鄰別資訊，嘗試從資料庫查詢: {address}")
+                standardized_addr = standardize_village_address(address, self.village)
+                neighborhood = self.query_neighborhood_by_address(standardized_addr)
+                
+                if neighborhood is None:
+                    logger.warning(f"無法從資料庫查詢鄰別資訊: {address}")
+                    neighborhood = 0
+                else:
+                    logger.info(f"成功從資料庫查詢到鄰別: {neighborhood}")
+            elif neighborhood is None:
+                logger.warning(f"無法提取鄰別資訊: {address}")
+                neighborhood = 0
+            
+            # 標準化地址格式（使用簡單地址標準化）
+            standardized_addr = standardize_village_address(address, self.village)
+            
+            # 驗證地址格式
+            if validate_address_format(standardized_addr):
+                all_data.append({
+                    "neighborhood": neighborhood,
+                    "name": name,
+                    "serial_number": serial_number,
+                    "original_address": raw_address,
+                    "standardized_address": standardized_addr,
+                    "sheet_name": sheet_name,
+                })
+            else:
+                logger.warning("跳過無效地址格式: %s", standardized_addr)
+                invalid_addresses.append({
+                    "serial_number": serial_number,
+                    "name": name,
+                    "raw_address": raw_address,
+                    "reason": "地址格式無效"
+                })
+
+    def _save_invalid_addresses(self, invalid_addresses: List[Dict]) -> None:
+        """儲存無效地址報告
+        
+        Args:
+            invalid_addresses: 無效地址列表
+        """
+        if not invalid_addresses:
+            return
+            
+        logger.info(f"發現 {len(invalid_addresses)} 個無效地址")
+        
+        # 創建無效地址報告 DataFrame
+        invalid_df = pd.DataFrame(invalid_addresses)
+        
+        # 重新排序和重命名欄位
+        invalid_df = invalid_df.rename(columns={
+            'serial_number': '序號',
+            'name': '姓名',
+            'raw_address': '原始地址',
+            'reason': '無效原因'
+        })
+        
+        # 選擇需要的欄位
+        columns_to_export = ['序號', '姓名', '原始地址', '無效原因']
+        invalid_df = invalid_df[columns_to_export]
+        
+        # 產生輸出檔案名稱
+        output_file = Path("output") / f"{self.district}{self.village}地址處理結果_無效地址.csv"
+        output_file.parent.mkdir(exist_ok=True)
+        
+        # 儲存到 CSV 檔案
+        invalid_df.to_csv(output_file, index=False, encoding='utf-8-sig')
+        logger.info(f"無效地址報告已儲存至: {output_file}")
+        
+        # 記錄詳細資訊
+        for addr in invalid_addresses:
+            logger.warning(f"無效地址: {addr['serial_number']} - {addr['raw_address']} ({addr['reason']})")
 
     def _read_single_sheet_format(self, excel_path: str, sheet_name: str) -> List[Dict]:
         """讀取單工作表格式的 Excel 資料
@@ -313,9 +604,20 @@ class VillageProcessor:
                     # 檢查地址是否為目標區域和村里
                     if f"{self.district}" in address and f"{self.village}" in address:
                         # 主要村里地址處理
-                        neighborhood = extract_neighborhood_from_address(address)
+                        neighborhood = extract_neighborhood_from_address(address, allow_database_lookup=True)
                         
-                        if neighborhood is None:
+                        if neighborhood == -1:
+                            # 需要資料庫查詢鄰別資訊
+                            logger.info(f"地址缺少鄰別資訊，嘗試從資料庫查詢: {address}")
+                            standardized_addr = self._standardize_roster_address(address)
+                            neighborhood = self.query_neighborhood_by_address(standardized_addr)
+                            
+                            if neighborhood is None:
+                                logger.warning(f"無法從資料庫查詢鄰別資訊: {address}")
+                                neighborhood = 0
+                            else:
+                                logger.info(f"成功從資料庫查詢到鄰別: {neighborhood}")
+                        elif neighborhood is None:
                             logger.warning(f"無法提取鄰別資訊: {address}")
                             neighborhood = 0
                         
@@ -343,9 +645,23 @@ class VillageProcessor:
                     elif self.include_cross_village and f"{self.district}" in address:
                         # 同區其他村里地址處理
                         logger.info(f"跨村里地址: {address}")
-                        neighborhood = extract_neighborhood_from_address(address)
+                        neighborhood = extract_neighborhood_from_address(address, allow_database_lookup=True)
                         
-                        if neighborhood is None:
+                        if neighborhood == -1:
+                            # 需要資料庫查詢鄰別資訊
+                            logger.info(f"跨村里地址缺少鄰別資訊，嘗試從資料庫查詢: {address}")
+                            standardized_addr = self._standardize_cross_village_address(address)
+                            # 提取村里名稱用於查詢
+                            village_name = self._extract_village_name(address)
+                            # 使用提取的村里名稱進行查詢
+                            neighborhood = self.query_neighborhood_by_address(standardized_addr, village_name)
+                            
+                            if neighborhood is None:
+                                logger.warning(f"無法從資料庫查詢跨村里地址鄰別資訊: {address}")
+                                neighborhood = 0
+                            else:
+                                logger.info(f"成功從資料庫查詢到跨村里地址鄰別: {neighborhood}")
+                        elif neighborhood is None:
                             logger.warning(f"跨村里地址無法提取鄰別資訊: {address}")
                             neighborhood = 0
                         
@@ -396,10 +712,203 @@ class VillageProcessor:
             logger.error(f"讀取名冊格式失敗: {e}")
             raise
 
+    def _read_simple_list_format(self, excel_path: str, sheet_name: str) -> List[Dict]:
+        """讀取簡單列表格式的 Excel 資料
+        
+        期望格式：
+        Row 0: 標題（編號, 里別, 名字, 慰問地點, 備註）
+        Row 1+: 實際資料
+        
+        Args:
+            excel_path: Excel 文件路徑
+            sheet_name: 工作表名稱
+            
+        Returns:
+            處理後的數據列表
+        """
+        all_data = []
+        cross_village_data = []  # 記錄跨村里地址
+        invalid_addresses = []  # 記錄無效地址
+        
+        try:
+            df = pd.read_excel(excel_path, sheet_name=sheet_name)
+            
+            # 使用第一行作為標題
+            df.columns = df.iloc[0].values
+            df = df.iloc[1:].reset_index(drop=True)
+            
+            # 檢查是否有必要的欄位
+            if '編號' not in df.columns:
+                raise ValueError("簡單列表格式必須包含 '編號' 欄位")
+            if '慰問地點' not in df.columns and '地址' not in df.columns:
+                raise ValueError("簡單列表格式必須包含 '慰問地點' 或 '地址' 欄位")
+            
+            # 統一地址欄位名稱
+            if '慰問地點' in df.columns:
+                address_column = '慰問地點'
+            else:
+                address_column = '地址'
+            
+            # 移除空行
+            df = df.dropna(subset=['編號']).reset_index(drop=True)
+            
+            logger.info(f"簡單列表格式：找到 {len(df)} 筆原始資料")
+            
+            # 處理每一行資料
+            for _, row in df.iterrows():
+                if pd.notna(row[address_column]) and str(row[address_column]).strip():
+                    name = str(row['名字']).strip() if pd.notna(row['名字']) and '名字' in df.columns else ""
+                    serial_number = str(row['編號']).strip() if pd.notna(row['編號']) else ""
+                    raw_address = str(row[address_column]).strip()
+                    
+                    # 轉換全形數字
+                    address = convert_fullwidth_to_halfwidth(raw_address)
+                    
+                    # 構造完整地址用於檢查
+                    full_address = f"臺南市{self.district}{self.village}{address}"
+                    
+                    # 檢查地址是否為目標區域和村里
+                    if f"{self.district}" in full_address and f"{self.village}" in full_address:
+                        # 主要村里地址處理
+                        neighborhood = extract_neighborhood_from_address(full_address, allow_database_lookup=True)
+                        
+                        if neighborhood == -1:
+                            # 需要資料庫查詢鄰別資訊
+                            logger.info(f"地址缺少鄰別資訊，嘗試從資料庫查詢: {address}")
+                            # 判斷是否為完整地址
+                            if "臺南市" in address or "台南市" in address:
+                                # 完整地址，直接使用原始地址查詢
+                                standardized_addr = address
+                            else:
+                                # 簡單地址，需要標準化
+                                standardized_addr = standardize_village_address(address, self.village)
+                            neighborhood = self.query_neighborhood_by_address(standardized_addr)
+                            
+                            if neighborhood is None:
+                                logger.warning(f"無法從資料庫查詢鄰別資訊: {address}")
+                                neighborhood = 0
+                            else:
+                                logger.info(f"成功從資料庫查詢到鄰別: {neighborhood}")
+                        elif neighborhood is None:
+                            logger.warning(f"無法提取鄰別資訊: {address}")
+                            neighborhood = 0
+                        
+                        # 標準化地址格式（包含 dash-to-zhi 轉換）
+                        if "臺南市" in address or "台南市" in address:
+                            # 完整地址，直接使用原始地址
+                            standardized_addr = address
+                        else:
+                            # 簡單地址，需要標準化
+                            standardized_addr = standardize_village_address(address, self.village)
+                        
+                        # 驗證地址格式
+                        if validate_address_format(standardized_addr):
+                            all_data.append({
+                                "neighborhood": neighborhood,
+                                "name": name,
+                                "serial_number": serial_number,
+                                "original_address": raw_address,
+                                "standardized_address": standardized_addr,
+                                "sheet_name": sheet_name,
+                            })
+                        else:
+                            logger.warning("跳過無效地址格式: %s", standardized_addr)
+                            invalid_addresses.append({
+                                "serial_number": serial_number,
+                                "name": name,
+                                "raw_address": raw_address,
+                                "reason": "地址格式無效"
+                            })
+                    elif self.include_cross_village and f"{self.district}" in full_address:
+                        # 同區其他村里地址處理
+                        logger.info(f"跨村里地址: {full_address}")
+                        neighborhood = extract_neighborhood_from_address(full_address, allow_database_lookup=True)
+                        
+                        if neighborhood == -1:
+                            # 需要資料庫查詢鄰別資訊
+                            logger.info(f"跨村里地址缺少鄰別資訊，嘗試從資料庫查詢: {full_address}")
+                            # 提取村里名稱用於查詢
+                            village_name = self._extract_village_name(full_address)
+                            # 判斷是否為完整地址
+                            if "臺南市" in address or "台南市" in address:
+                                # 完整地址，直接使用原始地址查詢
+                                standardized_addr = address
+                            else:
+                                # 簡單地址，需要標準化
+                                standardized_addr = standardize_village_address(address, village_name)
+                            # 使用提取的村里名稱進行查詢
+                            neighborhood = self.query_neighborhood_by_address(standardized_addr, village_name)
+                            
+                            if neighborhood is None:
+                                logger.warning(f"無法從資料庫查詢跨村里地址鄰別資訊: {full_address}")
+                                neighborhood = 0
+                            else:
+                                logger.info(f"成功從資料庫查詢到跨村里地址鄰別: {neighborhood}")
+                        elif neighborhood is None:
+                            logger.warning(f"跨村里地址無法提取鄰別資訊: {full_address}")
+                            neighborhood = 0
+                        
+                        # 標準化地址格式（包含 dash-to-zhi 轉換）
+                        if "臺南市" in address or "台南市" in address:
+                            # 完整地址，直接使用原始地址
+                            standardized_addr = address
+                        else:
+                            # 簡單地址，需要標準化
+                            village_name = self._extract_village_name(full_address)
+                            standardized_addr = standardize_village_address(address, village_name)
+                        
+                        # 驗證地址格式
+                        if validate_address_format(standardized_addr):
+                            cross_village_data.append({
+                                "neighborhood": neighborhood,
+                                "name": name,
+                                "serial_number": serial_number,
+                                "original_address": raw_address,
+                                "standardized_address": standardized_addr,
+                                "sheet_name": sheet_name,
+                            })
+                        else:
+                            logger.warning("跳過無效跨村里地址格式: %s", standardized_addr)
+                            invalid_addresses.append({
+                                "serial_number": serial_number,
+                                "name": name,
+                                "raw_address": raw_address,
+                                "reason": "跨村里地址格式無效"
+                            })
+                    else:
+                        # 跨區或跨里地址
+                        logger.warning(f"跨區域地址: {full_address}")
+                        invalid_addresses.append({
+                            "serial_number": serial_number,
+                            "name": name,
+                            "raw_address": raw_address,
+                            "reason": f"非{self.district}地址"
+                        })
+            
+            logger.info("成功讀取 %d 筆有效地址數據", len(all_data))
+            if cross_village_data:
+                logger.info("發現 %d 筆跨村里地址", len(cross_village_data))
+                # 將跨村里地址存為實例變數，供後續導出
+                self.cross_village_data = cross_village_data
+            if invalid_addresses:
+                logger.warning("發現 %d 筆無效或跨區域地址", len(invalid_addresses))
+                # 將無效地址存為實例變數，供後續導出
+                self.invalid_addresses = invalid_addresses
+            
+            return all_data
+            
+        except Exception as e:
+            logger.error(f"讀取簡單列表格式失敗: {e}")
+            raise
+
     def _standardize_roster_address(self, full_address: str) -> str:
         """標準化名冊格式的完整地址
         
         將 "臺南市七股區七股里13鄰七股123-12號" 轉換為 "七股123號之12"
+        支援移除台南市郵遞區號，如：
+        - "724臺南市七股區大埕里大埕350-6號" -> "大埕350號之6"
+        - "70101臺南市中西區..." -> "..."
+        - "700456台南市中西區..." -> "..."
         
         Args:
             full_address: 完整地址
@@ -408,6 +917,13 @@ class VillageProcessor:
             標準化後的地址
         """
         address = full_address
+        
+        # 移除台南市郵遞區號（如果存在）
+        # 郵遞區號模式：7開頭，3-6位數字，後面跟著"臺南市"或"台南市"
+        postal_code_pattern = r'^7\d{2,5}(?=臺南市|台南市)'
+        if re.match(postal_code_pattern, address):
+            address = re.sub(postal_code_pattern, '', address)
+            logger.debug(f"移除台南市郵遞區號: {full_address} -> {address}")
         
         # 移除前綴部分
         prefixes_to_remove = [
@@ -582,6 +1098,41 @@ class VillageProcessor:
 
         except Exception:
             logger.exception("查詢地址 %s 失敗", standardized_address)
+            return None
+
+    def query_neighborhood_by_address(self, standardized_address: str, target_village: str = None) -> Optional[int]:
+        """通過地址查詢鄰別資訊
+        
+        Args:
+            standardized_address: 標準化後的地址
+            target_village: 目標村里名稱，如果為None則使用預設村里
+            
+        Returns:
+            鄰別編號，如果未找到則返回None
+        """
+        try:
+            # 使用指定的村里或預設村里
+            village = target_village if target_village else self.village
+            
+            # 查詢資料庫中的鄰別資訊
+            response = (
+                self.supabase.table("addresses")
+                .select("neighborhood")
+                .eq("district", self.district)
+                .eq("village", village)
+                .eq("full_address", standardized_address)
+                .execute()
+            )
+
+            if response.data:
+                # 返回找到的鄰別
+                return response.data[0]["neighborhood"]
+
+            # 找不到就返回None
+            return None
+
+        except Exception:
+            logger.exception("查詢地址 %s 的鄰別失敗", standardized_address)
             return None
 
     def process_data(
@@ -829,7 +1380,7 @@ def main():
         output_dir = Path("output")
         output_dir.mkdir(exist_ok=True)
         args.output_path = str(
-            output_dir / f"{args.district}{args.village}分組結果.csv"
+            output_dir / f"{args.district}{args.village}地址處理結果.csv"
         )
 
     # 導出CSV

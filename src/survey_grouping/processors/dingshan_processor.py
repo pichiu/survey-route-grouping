@@ -276,7 +276,7 @@ def main(remove_duplicates: bool = False):
     processed_data, unmatched = processor.process_data(excel_path)
 
     # 導出CSV
-    output_path = "output/七股區頂山里分組結果.csv"
+    output_path = "output/七股區頂山里地址處理結果.csv"
     processor.export_to_csv(processed_data, output_path, remove_duplicates)
 
     # 輸出統計資訊
