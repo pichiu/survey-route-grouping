@@ -214,6 +214,9 @@ marimo/_static/
 marimo/_lsp/
 __marimo__/
 
+# 工作腳本檔案
+work_scripts/
+
 # 輸出檔案
 output/
 *.xlsx
