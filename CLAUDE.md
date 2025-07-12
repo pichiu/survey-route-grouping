@@ -161,3 +161,13 @@ CLUSTERING_ALGORITHM=kmeans
 - Supports both interactive CLI and programmatic usage
 - Generates offline-capable HTML maps for field use
 - Designed for volunteer survey coordination and route optimization
+
+## Work Scripts Directory
+
+The `work_scripts/` directory contains processing and validation scripts used during development and data processing. This directory is ignored by git and should contain:
+- One-off processing scripts for specific villages or districts
+- Validation scripts for data quality checks
+- Batch processing utilities
+- Temporary scripts for testing new functionality
+
+These scripts are not part of the main application but are useful for data preparation and validation tasks.
